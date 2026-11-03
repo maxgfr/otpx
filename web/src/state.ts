@@ -75,7 +75,7 @@ export class App {
   /** The new vault's recovery code is on screen and not confirmed yet. */
   recoveryPending = false;
   /** A remote holds the vault under a new key (password changed elsewhere): unlock it. */
-  rekey: { name: string; remote: string } | null = null;
+  rekey: { name: string; remote: string; concurrent: boolean } | null = null;
   private syncAgain = false;
   private lastActivity = Date.now();
   lastError: string | null = null;
@@ -220,12 +220,19 @@ export class App {
           const kept = this.remotes.find((x) => x.name === r.name);
           if (kept) kept.lastSync = Date.now();
         } catch (e) {
-          if (e instanceof SyncError && e.message === 'key-changed' && e.remote) {
-            this.rekey = { name: r.name, remote: e.remote };
+          if (e instanceof SyncError && e.message.startsWith('key-changed') && e.remote) {
+            this.rekey = {
+              name: r.name,
+              remote: e.remote,
+              concurrent: e.message === 'key-changed-concurrent',
+            };
             out.push({ name: r.name, error: 'key-changed' });
             break;
           }
-          const m = e instanceof SyncError && e.message === 'other-vault' ? 'other-vault' : message(e);
+          const m =
+            e instanceof SyncError && (e.message === 'other-vault' || e.message === 'untrusted-key')
+              ? e.message
+              : message(e);
           out.push({ name: r.name, error: m });
           this.lastError = `${r.name}: ${m}`;
         }
@@ -250,13 +257,12 @@ export class App {
   /** The vault was re-keyed elsewhere: `newer` (the remote, unlocked with the current password)
    *  takes this browser's changes and becomes the vault. */
   async adoptRekeyed(newer: Vault): Promise<void> {
-    const old = this.vault;
-    if (old) newer.absorbOwn(old, Date.now());
-    const remotes = this.remotes;
-    this.vault = newer;
-    this.remotes = remotes;
+    const vault = this.vault;
+    if (!vault) return;
+    // This browser's copy takes the other device's key (and keeps its own entries and slots).
+    vault.absorbRotated(newer, Date.now(), this.device.id);
+    newer.free();
     this.rekey = null;
-    old?.free();
     await this.save(false);
     this.touch();
     this.emit();

@@ -19,7 +19,15 @@ export async function runSync(): Promise<void> {
   for (const r of out) {
     if (r.error)
       toast(
-        t('sync.failed', { name: r.name, error: r.error === 'other-vault' ? t('sync.other') : r.error }),
+        t('sync.failed', {
+          name: r.name,
+          error:
+            r.error === 'other-vault'
+              ? t('sync.other')
+              : r.error === 'untrusted-key'
+                ? t('sync.untrusted')
+                : r.error,
+        }),
         'error',
       );
     else if (r.result) toast(`${r.name}: ${t('sync.done', { result: results[r.result]() })}`);

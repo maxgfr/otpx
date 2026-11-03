@@ -353,6 +353,14 @@ pub fn disable_quick(ctx: &Ctx, method: &str) -> anyhow::Result<()> {
     if let Ok(mut s) = open(ctx) {
         let device = ctx.config().device_id;
         if s.vault
+            .keyring
+            .slots
+            .iter()
+            .any(|x| x.device.as_deref() == Some(device_slot(ctx, method).as_str()))
+        {
+            sync_before_rotation(ctx, &mut s);
+        }
+        if s.vault
             .remove_device(&device_slot(ctx, method), now_ms(), &device)
             .map_err(core_failure)?
         {
@@ -374,42 +382,77 @@ pub fn disable_quick(ctx: &Ctx, method: &str) -> anyhow::Result<()> {
     })
 }
 
-/// The vault key changed on another device (or in another otpx process): unlock `newer` with
-/// the current master password and fold this session's changes into it.
-pub fn rekey(ctx: &Ctx, s: &mut Session, newer: &VaultFile) -> anyhow::Result<()> {
-    if let Ok(pw) = std::env::var("OTPX_PASSWORD")
-        && !pw.is_empty()
-    {
-        let mut other = newer
-            .unlock_password(&pw)
-            .map_err(|_| fail(exit::AUTH, "OTPX_PASSWORD does not open the re-keyed vault"))?;
-        other.absorb_own(&s.vault, now_ms()).map_err(core_failure)?;
-        s.vault = other;
-        return Ok(());
-    }
-    if !ui::interactive() {
-        return Err(fail(
-            exit::LOCKED,
-            "the vault key changed on another device (password, recovery code or devices changed): run `otpx sync` in a terminal and enter the current master password",
-        ));
-    }
-    ctx.ui.note(
-        "The vault key changed on another device (password, recovery code or devices changed).",
-    );
-    let mut other = None;
-    for _ in 0..3 {
-        let pw = read_secret("Current master password: ", false)?;
-        if let Ok(v) = newer.unlock_password(&pw) {
-            other = Some(v);
-            break;
+/// The vault key changed on another device: unlock `newer` with the current master password
+/// and fold this session's entries and slots into it. `concurrent`: this device re-keyed too,
+/// so the user must confirm both changes were theirs (someone holding an old password could
+/// otherwise pass a key of their own).
+pub fn rekey(
+    ctx: &Ctx,
+    s: &mut Session,
+    newer: &VaultFile,
+    concurrent: bool,
+) -> anyhow::Result<()> {
+    let device = ctx.config().device_id;
+    if concurrent {
+        if !ui::interactive() {
+            return Err(fail(
+                exit::CONFLICT,
+                "the vault was re-keyed on two devices at once: run `otpx sync` in a terminal to confirm",
+            ));
         }
-        ctx.ui.note("Wrong password, try again.");
+        ctx.ui.warn("the vault was re-keyed on another device while this device re-keyed it too (password, recovery code or quick unlock changed on both)");
+        if !ctx.ui.confirm("Did you make both changes yourself")? {
+            return Err(fail(
+                exit::CONFLICT,
+                "not merged: the other key may come from an old password; change your master password on a trusted device",
+            ));
+        }
     }
-    let mut other = other.ok_or_else(|| fail(exit::AUTH, "wrong master password"))?;
-    other.absorb_own(&s.vault, now_ms()).map_err(core_failure)?;
-    s.vault = other;
+    let other = if let Ok(pw) = std::env::var("OTPX_PASSWORD")
+        && !pw.is_empty()
+        && !concurrent
+    {
+        newer
+            .unlock_password(&pw)
+            .map_err(|_| fail(exit::AUTH, "OTPX_PASSWORD does not open the re-keyed vault"))?
+    } else {
+        if !ui::interactive() {
+            return Err(fail(
+                exit::LOCKED,
+                "the vault key changed on another device (password, recovery code or devices changed): run `otpx sync` in a terminal and enter the current master password",
+            ));
+        }
+        ctx.ui.note(
+            "The vault key changed on another device (password, recovery code or devices changed).",
+        );
+        let mut found = None;
+        for _ in 0..3 {
+            let pw = read_secret("Current master password: ", false)?;
+            if let Ok(v) = newer.unlock_password(&pw) {
+                found = Some(v);
+                break;
+            }
+            ctx.ui.note("Wrong password, try again.");
+        }
+        found.ok_or_else(|| fail(exit::AUTH, "wrong master password"))?
+    };
+    s.vault
+        .absorb_rotated(&other, now_ms(), &device)
+        .map_err(core_failure)?;
+    note_keyring(ctx, KeyringChange::Adopted);
     remember(ctx, &s.vault, None)?;
     Ok(())
+}
+
+/// Before changing the key here, take what other devices pushed (a rotation retires their
+/// copies under the old key, so they would otherwise come back only when they sync again).
+pub fn sync_before_rotation(ctx: &Ctx, s: &mut Session) {
+    if ctx.may_auto_sync()
+        && !ctx.config().remotes.is_empty()
+        && let Err(e) = crate::sync::sync_all(ctx, s, None)
+    {
+        ctx.ui.warn(&format!("could not sync before changing the key ({e:#}): changes other devices pushed meanwhile come back when they sync again"));
+    }
 }
 
 /// Saves the vault: merges what another otpx wrote meanwhile, keeps a snapshot, writes, then
@@ -433,18 +476,32 @@ pub fn write_local(ctx: &Ctx, s: &mut Session) -> anyhow::Result<()> {
     if let Some((disk, _)) = ctx.store.read()?
         && disk.id == s.vault.id
     {
-        if disk.key_id == s.vault.key_id() {
-            if let Ok(other) = disk.unlock_dek(s.vault.dek()) {
-                s.vault.absorb_own(&other, now_ms()).map_err(core_failure)?;
-                // Same content: keep the file (a new nonce would only make a needless snapshot).
-                if s.vault.data == other.data && s.vault.keyring == other.keyring {
-                    refresh_cache(ctx, &s.vault)?;
-                    return Ok(());
+        use otpx_core::vault::Trust;
+        match disk.trust(&s.vault) {
+            Trust::Same => {
+                if let Ok(other) = disk.unlock_dek(s.vault.dek()) {
+                    s.vault.absorb(&other, now_ms()).map_err(core_failure)?;
+                    // Same content: keep the file (a new nonce would only make a needless snapshot).
+                    if s.vault.data == other.data && s.vault.keyring == other.keyring {
+                        refresh_cache(ctx, &s.vault)?;
+                        return Ok(());
+                    }
                 }
             }
-        } else if !disk.retired_by(&s.vault.keyring) {
+            Trust::Stale => {}
             // Another otpx re-keyed the vault meanwhile (a sync brought a new key).
-            rekey(ctx, s, &disk)?;
+            t @ (Trust::Endorsed | Trust::Concurrent) => {
+                rekey(ctx, s, &disk, t == Trust::Concurrent)?
+            }
+            Trust::Untrusted => {
+                return Err(fail(
+                    exit::CONFLICT,
+                    format!(
+                        "{} was re-keyed by something this device cannot verify: not overwritten",
+                        ctx.store.vault().display()
+                    ),
+                ));
+            }
         }
     }
     let json = s.vault.seal().map_err(core_failure)?.to_json();

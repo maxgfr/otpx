@@ -201,6 +201,8 @@ const en = {
   'sync.result.merged': 'merged both ways',
   'sync.failed': 'Sync failed on {name}: {error}',
   'sync.other': 'The remote holds another vault.',
+  'sync.untrusted':
+    'The remote was re-keyed by something this browser cannot verify (tampered?). Nothing was merged or sent.',
   'sync.devicelink': 'Set up another device',
   'sync.devicelink.lead':
     'A link carrying your remotes and tokens, locked with a passphrase you type on the other device.',
@@ -237,6 +239,9 @@ const en = {
   'rekey.lead':
     'The vault on {name} was re-keyed on another device (master password, recovery code or quick unlock changed). Enter the current master password; the changes made here are kept.',
   'rekey.password': 'Current master password',
+  'rekey.concurrent':
+    'This vault was re-keyed on another device while this browser re-keyed it too. Someone holding an old password could cause this: continue only if you made both changes.',
+  'rekey.both': 'I made both changes',
   'settings.title': 'Settings',
   'settings.security': 'Security',
   'settings.autolock': 'Lock after',
@@ -498,6 +503,8 @@ const fr: Record<Key, string> = {
   'sync.result.merged': 'fusionné dans les deux sens',
   'sync.failed': 'Échec de la synchro sur {name} : {error}',
   'sync.other': 'Le remote contient un autre coffre.',
+  'sync.untrusted':
+    "Le remote a changé de clé d'une façon que ce navigateur ne peut pas vérifier (modifié ?). Rien n'a été fusionné ni envoyé.",
   'sync.devicelink': 'Configurer un autre appareil',
   'sync.devicelink.lead':
     "Un lien qui transporte tes remotes et tokens, verrouillé par une phrase de passe que tu tapes sur l'autre appareil.",
@@ -535,6 +542,9 @@ const fr: Record<Key, string> = {
   'rekey.lead':
     'Le coffre de {name} a changé de clé sur un autre appareil (mot de passe maître, code de secours ou déverrouillage rapide modifié). Entre le mot de passe maître actuel ; les changements faits ici sont gardés.',
   'rekey.password': 'Mot de passe maître actuel',
+  'rekey.concurrent':
+    "Ce coffre a changé de clé sur un autre appareil pendant que ce navigateur en changeait aussi. Quelqu'un qui connaît un ancien mot de passe pourrait provoquer cela : ne continue que si tu as fait les deux changements.",
+  'rekey.both': "J'ai fait les deux changements",
   'settings.title': 'Réglages',
   'settings.security': 'Sécurité',
   'settings.autolock': 'Verrouiller après',

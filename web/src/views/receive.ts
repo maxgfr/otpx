@@ -56,15 +56,24 @@ export function receive(main: HTMLElement, link: string): void {
                 }
               }
               try {
-                const got = await backendOf(first, app.files)?.fetch();
-                if (!got || !core.isVault(got.content)) {
-                  mount(status, notice(t('fetch.notfound'), 'error'));
-                  return;
+                // Every remote must hold one and the same vault (this browser's, if it has one).
+                let seen = app.file ? core.vaultId(app.file) : null;
+                let got: { content: string } | null = null;
+                for (const r of remotes) {
+                  const f = await backendOf(r, app.files)?.fetch();
+                  if (!f || !core.isVault(f.content)) {
+                    mount(status, notice(t('fetch.notfound'), 'error'));
+                    return;
+                  }
+                  const id = core.vaultId(f.content);
+                  if (seen && seen !== id) {
+                    mount(status, notice(t('receive.device.other'), 'error'));
+                    return;
+                  }
+                  seen = id;
+                  got ??= f;
                 }
-                if (app.file && core.vaultId(app.file) !== core.vaultId(got.content)) {
-                  mount(status, notice(t('receive.device.other'), 'error'));
-                  return;
-                }
+                if (!got) return;
                 if (!app.file) await app.setFile(got.content);
                 app.pending = remotes;
                 if (app.vault) await app.opened(app.vault);

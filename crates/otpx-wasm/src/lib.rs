@@ -5,7 +5,7 @@
 use otpx_core::crypto::Argon2Params;
 use otpx_core::formats::{self, ExportFormat, Format};
 use otpx_core::model::{Entry, Kind, Settings, sort_entries};
-use otpx_core::vault::{KeyringChange, Unlocked, VaultFile};
+use otpx_core::vault::{KeyringChange, Trust, Unlocked, VaultFile};
 use otpx_core::{share, uri};
 use serde_json::{Value, json};
 use wasm_bindgen::prelude::*;
@@ -422,20 +422,25 @@ impl Vault {
     /// Merges another copy of this vault (from a remote): `{changed, differs, keyring}`.
     /// `changed` when it brought something, `differs` when the remote needs the merged result,
     /// `keyring` when the password, recovery code or devices changed elsewhere. Throws
-    /// `other-vault`, or `key-changed` when the vault was re-keyed elsewhere: unlock the remote
-    /// file with the current password, then `absorbOwn` this vault into it.
+    /// `other-vault`; `key-changed` (re-keyed by a device holding this key: unlock the remote
+    /// file with the current password, then `absorbRotated`); `key-changed-concurrent` (both
+    /// re-keyed: same, after the user confirms both changes were theirs); `untrusted-key`
+    /// (a new key nothing here vouches for: refuse).
     pub fn absorb(&mut self, file: &str, now: f64) -> Result<String, JsError> {
         let f = VaultFile::parse(file).map_err(err)?;
         if f.id != self.inner.id {
             return Err(err("other-vault: the remote holds another vault"));
         }
-        if f.key_id != self.inner.key_id() {
-            if f.retired_by(&self.inner.keyring) {
+        match f.trust(&self.inner) {
+            Trust::Same => {}
+            Trust::Stale => {
                 return Ok(
                     json!({ "changed": false, "differs": true, "keyring": false }).to_string(),
                 );
             }
-            return Err(err("key-changed"));
+            Trust::Endorsed => return Err(err("key-changed")),
+            Trust::Concurrent => return Err(err("key-changed-concurrent")),
+            Trust::Untrusted => return Err(err("untrusted-key")),
         }
         let other = f.unlock_dek(self.inner.dek()).map_err(err)?;
         let before = (self.inner.data.clone(), self.inner.keyring.clone());
@@ -445,11 +450,13 @@ impl Vault {
         Ok(json!({ "changed": changed, "differs": differs, "keyring": change == KeyringChange::Adopted }).to_string())
     }
 
-    /// Folds this device's own older copy (opened before a re-key) into this vault.
-    #[wasm_bindgen(js_name = absorbOwn)]
-    pub fn absorb_own(&mut self, older: &Vault, now: f64) -> Result<(), JsError> {
+    /// Takes a copy re-keyed elsewhere (opened with the current password); this vault's
+    /// entries and slots are kept, and it moves to the new key (or a fresh one when both
+    /// re-keyed).
+    #[wasm_bindgen(js_name = absorbRotated)]
+    pub fn absorb_rotated(&mut self, newer: &Vault, now: f64, device: &str) -> Result<(), JsError> {
         self.inner
-            .absorb_own(&older.inner, ms(now))
+            .absorb_rotated(&newer.inner, ms(now), device)
             .map(|_| ())
             .map_err(err)
     }

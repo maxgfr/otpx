@@ -373,6 +373,20 @@ pub struct VaultData {
     /// Preferences.
     #[serde(default)]
     pub settings: Settings,
+    /// Data keys this vault rotated away from, so a later rotation can be endorsed by each of
+    /// them (devices still on an older key then accept it). Secret: only inside the content.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keys: Vec<OldKey>,
+}
+
+/// A retired data key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub struct OldKey {
+    /// Its key id.
+    #[zeroize(skip)]
+    pub id: String,
+    /// The key (base64).
+    pub key: String,
 }
 
 /// Random lowercase hex id of `bytes` bytes.

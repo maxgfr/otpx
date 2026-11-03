@@ -22,7 +22,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::Zeroizing;
 
 use crate::crypto::{self, Argon2Params, Key, b64, unb64};
-use crate::model::{Stamp, VaultData, random_id};
+use crate::model::{OldKey, Stamp, VaultData, random_id};
 use crate::{Error, Result};
 
 /// `format` field of a vault file.
@@ -93,21 +93,48 @@ pub struct Slot {
     /// Free label ("MacBook Touch ID").
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub label: String,
-    /// Creation time (ms).
+    /// Creation time (ms), for display.
     #[serde(default)]
     pub created: u64,
+    /// When it was made (the newest password, recovery code or device slot wins a merge).
+    #[serde(default)]
+    pub stamp: Stamp,
+}
+
+/// A slot removed on purpose (so a merge does not bring it back).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Removed {
+    /// Slot id.
+    pub id: String,
+    /// When.
+    pub stamp: Stamp,
+}
+
+/// Proof that the holder of a previous key made the current one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Endorsement {
+    /// The endorsing (previous) key id.
+    pub from: String,
+    /// HMAC under that key of `(vault id, from, current key id)`.
+    pub mac: String,
 }
 
 /// The authenticated list of slots.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Keyring {
-    /// Revision: the newer keyring wins a merge.
+    /// Revision.
     pub rev: Stamp,
     /// Ways to unlock.
     pub slots: Vec<Slot>,
     /// Key ids this vault rotated away from (never accepted again).
     #[serde(default)]
     pub retired: Vec<String>,
+    /// Slots removed on purpose.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub removed: Vec<Removed>,
+    /// Endorsements of the current key by previous ones.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub endorsements: Vec<Endorsement>,
 }
 
 /// The vault file as stored and synced.
@@ -131,6 +158,23 @@ pub struct VaultFile {
     pub ct: String,
 }
 
+/// How far another copy of this vault can be trusted, before opening it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Trust {
+    /// Same key: open it with ours.
+    Same,
+    /// Under a key we rotated away from: stale or replayed; ours replaces it.
+    Stale,
+    /// Re-keyed by a device holding our current key: open it with the current password.
+    Endorsed,
+    /// Re-keyed from a key we also rotated away from, while we re-keyed too: open it only if
+    /// the user confirms both changes were theirs (an old password could forge this).
+    Concurrent,
+    /// A new key nothing we hold vouches for: refuse (a remote can seal a key of its own to
+    /// the public keys of the slots).
+    Untrusted,
+}
+
 fn key_id_of(dek: &[u8; 32], vault_id: &str) -> String {
     let k = crypto::hkdf(dek, vault_id.as_bytes(), b"otpx key id v1");
     data_encoding::HEXLOWER.encode(&k[..12])
@@ -141,6 +185,72 @@ fn keyring_mac(dek: &[u8; 32], vault_id: &str, key_id: &str, keyring: &Keyring) 
     let mut msg = format!("otpx-keyring:v1:{vault_id}:{key_id}:").into_bytes();
     msg.extend(serde_json::to_vec(keyring).expect("keyring serializes"));
     b64(&crypto::hmac(mk.as_ref(), &msg))
+}
+
+fn endorsement_mac(old_dek: &[u8], vault_id: &str, from: &str, to: &str) -> String {
+    let mk = crypto::hkdf(old_dek, vault_id.as_bytes(), b"otpx rotate v1");
+    b64(&crypto::hmac(
+        mk.as_ref(),
+        format!("otpx-rotate:v1:{vault_id}:{from}:{to}").as_bytes(),
+    ))
+}
+
+fn endorsed_by(keyring: &Keyring, vault_id: &str, key_id: &str, from: &str, dek: &[u8]) -> bool {
+    let want = endorsement_mac(dek, vault_id, from, key_id);
+    keyring
+        .endorsements
+        .iter()
+        .any(|e| e.from == from && crypto::ct_eq(e.mac.as_bytes(), want.as_bytes()))
+}
+
+/// Slot-by-slot union of two keyrings: deliberate removals stay removed, and for the master
+/// password, the recovery code, each passkey and each device, the newest slot wins.
+fn merge_slots(a: &Keyring, b: &Keyring) -> (Vec<Slot>, Vec<Removed>) {
+    let mut removed: Vec<Removed> = Vec::new();
+    for r in a.removed.iter().chain(&b.removed) {
+        match removed.iter_mut().find(|x| x.id == r.id) {
+            Some(x) if x.stamp >= r.stamp => {}
+            Some(x) => x.stamp = r.stamp.clone(),
+            None => removed.push(r.clone()),
+        }
+    }
+    removed.sort_by(|x, y| x.id.cmp(&y.id));
+    let group = |s: &Slot| match s.kind {
+        SlotKind::Password => "password".to_owned(),
+        SlotKind::Recovery => "recovery".to_owned(),
+        SlotKind::Passkey => format!("passkey:{}", s.credential.as_deref().unwrap_or(&s.id)),
+        SlotKind::Device => format!("device:{}", s.device.as_deref().unwrap_or(&s.id)),
+    };
+    let mut best: std::collections::BTreeMap<String, Slot> = std::collections::BTreeMap::new();
+    for s in a.slots.iter().chain(&b.slots) {
+        if removed.iter().any(|r| r.id == s.id) {
+            continue;
+        }
+        let g = group(s);
+        match best.get(&g) {
+            Some(cur) if (&cur.stamp, &cur.id) >= (&s.stamp, &s.id) => {}
+            _ => {
+                best.insert(g, s.clone());
+            }
+        }
+    }
+    let mut slots: Vec<Slot> = best.into_values().collect();
+    slots.sort_by(|x, y| (x.kind as u8, &x.stamp, &x.id).cmp(&(y.kind as u8, &y.stamp, &y.id)));
+    (slots, removed)
+}
+
+fn union(a: &[String], b: &[String]) -> Vec<String> {
+    let mut v: Vec<String> = a.to_vec();
+    for x in b {
+        if !v.contains(x) {
+            v.push(x.clone());
+        }
+    }
+    if v.len() > RETIRED_KEEP {
+        let extra = v.len() - RETIRED_KEEP;
+        v.drain(..extra);
+    }
+    v
 }
 
 fn content_aad(vault_id: &str, key_id: &str) -> Vec<u8> {
@@ -414,6 +524,37 @@ impl VaultFile {
     pub fn retired_by(&self, other: &Keyring) -> bool {
         other.retired.contains(&self.key_id)
     }
+
+    /// How far `vault` (the copy this device holds) can trust this file.
+    pub fn trust(&self, vault: &Unlocked) -> Trust {
+        if self.id != vault.id {
+            return Trust::Untrusted;
+        }
+        if self.key_id == vault.key_id {
+            return Trust::Same;
+        }
+        if vault.keyring.retired.contains(&self.key_id) {
+            return Trust::Stale;
+        }
+        if endorsed_by(
+            &self.keyring,
+            &self.id,
+            &self.key_id,
+            &vault.key_id,
+            vault.dek.as_ref(),
+        ) {
+            return Trust::Endorsed;
+        }
+        // Endorsed by a key we also rotated away from: two devices re-keyed at once.
+        for k in &vault.data.keys {
+            if let Ok(dek) = unb64(&k.key)
+                && endorsed_by(&self.keyring, &self.id, &self.key_id, &k.id, &dek)
+            {
+                return Trust::Concurrent;
+            }
+        }
+        Trust::Untrusted
+    }
 }
 
 /// An open vault: the DEK, the keyring and the decrypted content.
@@ -473,15 +614,16 @@ impl Unlocked {
                 rev: Stamp::default(),
                 slots: Vec::new(),
                 retired: Vec::new(),
+                removed: Vec::new(),
+                endorsements: Vec::new(),
             },
             data: VaultData::default(),
         };
-        v.keyring
-            .slots
-            .push(v.password_slot(password, params, now_ms)?);
-        let (code, slot) = v.recovery_slot(now_ms)?;
+        let pw = v.password_slot(password, params, now_ms, device)?;
+        v.keyring.slots.push(pw);
+        let (code, slot) = v.recovery_slot(now_ms, device)?;
         v.keyring.slots.push(slot);
-        v.keyring.rev = v.data.stamp(now_ms, device);
+        v.bump(now_ms, device);
         Ok(Created {
             vault: v,
             recovery_code: code,
@@ -498,8 +640,15 @@ impl Unlocked {
         &self.key_id
     }
 
-    fn new_slot(&self, kind: SlotKind, sk: &StaticSecret, now_ms: u64) -> Result<Slot> {
-        let mut slot = Slot {
+    fn new_slot(
+        &mut self,
+        kind: SlotKind,
+        sk: &StaticSecret,
+        now_ms: u64,
+        device: &str,
+    ) -> Result<Slot> {
+        let stamp = self.next_stamp(now_ms, device);
+        Ok(Slot {
             id: random_id(8)?,
             kind,
             public: b64(PublicKey::from(sk).as_bytes()),
@@ -513,12 +662,35 @@ impl Unlocked {
             device: None,
             label: String::new(),
             created: now_ms,
-        };
-        seal_slot(&self.id, &mut slot, &self.dek)?;
-        Ok(slot)
+            stamp,
+        })
     }
 
-    fn password_slot(&self, password: &str, params: Argon2Params, now_ms: u64) -> Result<Slot> {
+    /// A stamp newer than anything in the content and the keyring.
+    fn next_stamp(&self, now_ms: u64, device: &str) -> Stamp {
+        let mut last = self.data.max_stamp();
+        for s in self
+            .keyring
+            .slots
+            .iter()
+            .map(|s| &s.stamp)
+            .chain(self.keyring.removed.iter().map(|r| &r.stamp))
+            .chain(std::iter::once(&self.keyring.rev))
+        {
+            if *s > last {
+                last = s.clone();
+            }
+        }
+        Stamp::next(&last, now_ms, device)
+    }
+
+    fn password_slot(
+        &mut self,
+        password: &str,
+        params: Argon2Params,
+        now_ms: u64,
+        device: &str,
+    ) -> Result<Slot> {
         if password.is_empty() {
             return Err(Error::Entry("empty password".into()));
         }
@@ -528,50 +700,68 @@ impl Unlocked {
             SlotKind::Password,
             &slot_secret(k.as_ref(), SlotKind::Password),
             now_ms,
+            device,
         )?;
         slot.argon2 = Some(params);
         slot.salt = Some(b64(&salt));
-        // The cost and salt are part of the slot now: seal again so they are bound to it.
         seal_slot(&self.id, &mut slot, &self.dek)?;
         Ok(slot)
     }
 
-    fn recovery_slot(&self, now_ms: u64) -> Result<(String, Slot)> {
+    fn recovery_slot(&mut self, now_ms: u64, device: &str) -> Result<(String, Slot)> {
         let (code, raw) = new_recovery_code()?;
-        let slot = self.new_slot(
+        let mut slot = self.new_slot(
             SlotKind::Recovery,
             &slot_secret(&raw, SlotKind::Recovery),
             now_ms,
+            device,
         )?;
+        seal_slot(&self.id, &mut slot, &self.dek)?;
         Ok((code, slot))
     }
 
-    /// A new DEK sealed to every remaining slot; the old key is retired.
-    fn rotate(&mut self, now_ms: u64, device: &str) -> Result<()> {
-        let old = std::mem::take(&mut self.key_id);
-        let dek = crypto::random_key()?;
-        self.key_id = key_id_of(&dek, &self.id);
-        self.dek = dek;
+    fn reseal_all(&mut self) -> Result<()> {
         for slot in &mut self.keyring.slots {
             seal_slot(&self.id, slot, &self.dek)?;
         }
-        self.keyring.retired.retain(|k| *k != old);
-        self.keyring.retired.push(old);
-        if self.keyring.retired.len() > RETIRED_KEEP {
-            let extra = self.keyring.retired.len() - RETIRED_KEEP;
-            self.keyring.retired.drain(..extra);
+        Ok(())
+    }
+
+    /// A new DEK sealed to every remaining slot; the old key is retired and keeps, inside the
+    /// content, the ability to vouch for the new one.
+    fn rotate(&mut self, now_ms: u64, device: &str) -> Result<()> {
+        let old_id = self.key_id.clone();
+        if !self.data.keys.iter().any(|k| k.id == old_id) {
+            self.data.keys.push(OldKey {
+                id: old_id.clone(),
+                key: b64(self.dek.as_ref()),
+            });
         }
+        if self.data.keys.len() > RETIRED_KEEP {
+            let extra = self.data.keys.len() - RETIRED_KEEP;
+            self.data.keys.drain(..extra);
+        }
+        let dek = crypto::random_key()?;
+        self.key_id = key_id_of(&dek, &self.id);
+        self.dek = dek;
+        self.reseal_all()?;
+        self.keyring.retired = union(&self.keyring.retired, std::slice::from_ref(&old_id));
+        let mut endorsements = Vec::new();
+        for k in &self.data.keys {
+            if let Ok(old) = unb64(&k.key) {
+                endorsements.push(Endorsement {
+                    from: k.id.clone(),
+                    mac: endorsement_mac(&old, &self.id, &k.id, &self.key_id),
+                });
+            }
+        }
+        self.keyring.endorsements = endorsements;
         self.bump(now_ms, device);
         Ok(())
     }
 
     fn bump(&mut self, now_ms: u64, device: &str) {
-        let s = self.data.stamp(now_ms, device);
-        self.keyring.rev = if s > self.keyring.rev {
-            s
-        } else {
-            Stamp::next(&self.keyring.rev, now_ms, device)
-        };
+        self.keyring.rev = self.next_stamp(now_ms, device);
     }
 
     /// Replaces the master password (and rotates the key: the old password, and every old copy
@@ -583,7 +773,7 @@ impl Unlocked {
         now_ms: u64,
         device: &str,
     ) -> Result<()> {
-        let slot = self.password_slot(password, params, now_ms)?;
+        let slot = self.password_slot(password, params, now_ms, device)?;
         self.keyring.slots.retain(|s| s.kind != SlotKind::Password);
         self.keyring.slots.insert(0, slot);
         self.rotate(now_ms, device)
@@ -591,7 +781,7 @@ impl Unlocked {
 
     /// Replaces the recovery code (and rotates the key); returns the new code.
     pub fn reset_recovery(&mut self, now_ms: u64, device: &str) -> Result<String> {
-        let (code, slot) = self.recovery_slot(now_ms)?;
+        let (code, slot) = self.recovery_slot(now_ms, device)?;
         self.keyring.slots.retain(|s| s.kind != SlotKind::Recovery);
         self.keyring.slots.push(slot);
         self.rotate(now_ms, device)?;
@@ -615,6 +805,7 @@ impl Unlocked {
             SlotKind::Passkey,
             &slot_secret(prf, SlotKind::Passkey),
             now_ms,
+            device,
         )?;
         slot.credential = Some(credential.to_owned());
         slot.prf_salt = Some(prf_salt.to_owned());
@@ -653,6 +844,7 @@ impl Unlocked {
             SlotKind::Device,
             &slot_secret(&material, SlotKind::Device),
             now_ms,
+            device,
         )?;
         slot.device = Some(device_name.to_owned());
         slot.salt = salt;
@@ -667,13 +859,29 @@ impl Unlocked {
         Ok(key)
     }
 
+    fn drop_slots(&mut self, ids: &[String], now_ms: u64, device: &str) -> Result<()> {
+        let stamp = self.next_stamp(now_ms, device);
+        self.keyring.slots.retain(|s| !ids.contains(&s.id));
+        for id in ids {
+            self.keyring.removed.push(Removed {
+                id: id.clone(),
+                stamp: stamp.clone(),
+            });
+        }
+        if self.keyring.removed.len() > 256 {
+            let extra = self.keyring.removed.len() - 256;
+            self.keyring.removed.drain(..extra);
+        }
+        self.rotate(now_ms, device)
+    }
+
     /// Removes a slot and rotates the key (a removed passkey or device cannot read what follows);
     /// the last password slot stays.
     pub fn remove_slot(&mut self, slot_id: &str, now_ms: u64, device: &str) -> Result<()> {
-        let Some(pos) = self.keyring.slots.iter().position(|s| s.id == slot_id) else {
+        let Some(slot) = self.keyring.slots.iter().find(|s| s.id == slot_id) else {
             return Err(Error::Entry(format!("no slot {slot_id}")));
         };
-        if self.keyring.slots[pos].kind == SlotKind::Password
+        if slot.kind == SlotKind::Password
             && self
                 .keyring
                 .slots
@@ -686,8 +894,7 @@ impl Unlocked {
                 "the master password slot cannot be removed".into(),
             ));
         }
-        self.keyring.slots.remove(pos);
-        self.rotate(now_ms, device)
+        self.drop_slots(&[slot_id.to_owned()], now_ms, device)
     }
 
     /// Removes the device slot named `device_name`, if any.
@@ -702,8 +909,7 @@ impl Unlocked {
         if ids.is_empty() {
             return Ok(false);
         }
-        self.keyring.slots.retain(|s| !ids.contains(&s.id));
-        self.rotate(now_ms, device)?;
+        self.drop_slots(&ids, now_ms, device)?;
         Ok(true)
     }
 
@@ -723,61 +929,83 @@ impl Unlocked {
         })
     }
 
-    /// Merges another open copy of the same vault (another device's save). The content merges
-    /// entry by entry. The keyring of the copy whose key the other one retired loses; otherwise
-    /// the newer revision wins, and its key comes with it.
-    ///
-    /// A copy under a key this vault retired is stale or forged (whoever knew an old password can
-    /// write one): its content is ignored. Use [`Unlocked::absorb_own`] for this device's own
-    /// older copy, whose changes must survive a rotation made elsewhere.
+    /// Merges another copy under the **same key** (another device's save): entries merge one by
+    /// one, slots merge one by one (removals stick, the newest password, recovery code, passkey
+    /// and device slot win).
     pub fn absorb(&mut self, other: &Unlocked, now_ms: u64) -> Result<KeyringChange> {
-        self.absorb_inner(other, now_ms, false)
-    }
-
-    /// Like [`Unlocked::absorb`] for a copy this device wrote itself (opened with its own cached
-    /// key), so its content is merged even when its key was retired meanwhile.
-    pub fn absorb_own(&mut self, other: &Unlocked, now_ms: u64) -> Result<KeyringChange> {
-        self.absorb_inner(other, now_ms, true)
-    }
-
-    fn absorb_inner(&mut self, other: &Unlocked, now_ms: u64, own: bool) -> Result<KeyringChange> {
         if other.id != self.id {
             return Err(Error::Entry("these are two different vaults".into()));
         }
-        let other_retired = self.keyring.retired.contains(&other.key_id);
-        if !other_retired || own {
-            self.data = crate::merge::merge(&self.data, &other.data, now_ms);
+        if other.key_id != self.key_id {
+            return Err(Error::Entry(
+                "this copy is under another key: check its trust first".into(),
+            ));
         }
-        let adopt = if other_retired {
-            false
-        } else if other.keyring.retired.contains(&self.key_id) {
-            true
-        } else {
-            other.keyring.rev > self.keyring.rev
+        self.data = crate::merge::merge(&self.data, &other.data, now_ms);
+        let before = self.keyring.clone();
+        let (slots, removed) = merge_slots(&self.keyring, &other.keyring);
+        self.keyring.slots = slots;
+        self.keyring.removed = removed;
+        self.keyring.retired = union(&self.keyring.retired, &other.keyring.retired);
+        if other.keyring.rev > self.keyring.rev {
+            self.keyring.rev = other.keyring.rev.clone();
+        }
+        if other.keyring.endorsements.len() > self.keyring.endorsements.len() {
+            self.keyring.endorsements = other.keyring.endorsements.clone();
+        }
+        Ok(
+            if self.keyring.slots != before.slots || self.keyring.removed != before.removed {
+                KeyringChange::Adopted
+            } else {
+                KeyringChange::Kept
+            },
+        )
+    }
+
+    /// Takes a copy re-keyed elsewhere ([`Trust::Endorsed`] or, once the user confirmed,
+    /// [`Trust::Concurrent`]), opened with the current password. This copy's entries and slots
+    /// are kept. When this copy had re-keyed too, the key rotates once more, so neither
+    /// device's retired secrets open what follows.
+    pub fn absorb_rotated(
+        &mut self,
+        other: &Unlocked,
+        now_ms: u64,
+        device: &str,
+    ) -> Result<KeyringChange> {
+        if other.id != self.id {
+            return Err(Error::Entry("these are two different vaults".into()));
+        }
+        let linear = other.keyring.retired.contains(&self.key_id);
+        self.data = crate::merge::merge(&self.data, &other.data, now_ms);
+        if !self.data.keys.iter().any(|k| k.id == self.key_id) {
+            self.data.keys.push(OldKey {
+                id: self.key_id.clone(),
+                key: b64(self.dek.as_ref()),
+            });
+        }
+        let (slots, removed) = merge_slots(&self.keyring, &other.keyring);
+        let mut retired = union(&self.keyring.retired, &other.keyring.retired);
+        retired = union(&retired, std::slice::from_ref(&self.key_id));
+        self.keyring = Keyring {
+            rev: other.keyring.rev.clone().max(self.keyring.rev.clone()),
+            slots,
+            retired,
+            removed,
+            endorsements: other.keyring.endorsements.clone(),
         };
-        if !adopt {
-            // Remember a concurrent rotation we did not take, so it is never accepted later.
-            if other.key_id != self.key_id && !self.keyring.retired.contains(&other.key_id) {
-                self.keyring.retired.push(other.key_id.clone());
-            }
-            return Ok(KeyringChange::Kept);
-        }
-        let mut retired = other.keyring.retired.clone();
-        for k in self
-            .keyring
-            .retired
-            .iter()
-            .chain(std::iter::once(&self.key_id))
-        {
-            if *k != other.key_id && !retired.contains(k) {
-                retired.push(k.clone());
-            }
-        }
-        self.keyring = other.keyring.clone();
-        self.keyring.retired = retired;
         self.dek = Zeroizing::new(*other.dek);
         self.key_id = other.key_id.clone();
+        self.reseal_all()?;
+        if !linear {
+            self.rotate(now_ms, device)?;
+        }
         Ok(KeyringChange::Adopted)
+    }
+
+    /// Folds in this device's own older copy saved under a key it rotated away from (its
+    /// entries only; the keyring stays).
+    pub fn absorb_own(&mut self, older: &Unlocked, now_ms: u64) {
+        self.data = crate::merge::merge(&self.data, &older.data, now_ms);
     }
 
     /// Encrypts device-local data (the web app's sync settings) with a key derived from the DEK.
@@ -851,12 +1079,8 @@ mod tests {
         let f = reopen(&c.vault);
         assert!(f.unlock_password("hunter2").is_err());
         assert!(f.unlock_password("new pass").is_ok());
-        // The recovery code still works (re-sealed without knowing it).
         assert!(f.unlock_recovery(&c.recovery_code).is_ok());
-        // The old key and the old password open nothing written after the change.
         assert!(f.unlock_dek(&old_dek).is_err());
-        let old_open = old_file.unlock_password("hunter2").unwrap();
-        assert!(f.unlock_dek(old_open.dek()).is_err());
         assert!(f.keyring.retired.contains(&old_file.key_id));
     }
 
@@ -874,7 +1098,6 @@ mod tests {
     fn keyring_tampering_is_detected() {
         let c = new_vault();
         let good = c.vault.seal().unwrap();
-        // A remote swaps in the slots of another vault (or bumps a revision): the MAC fails.
         let other = Unlocked::create("attacker", P, 1, "x").unwrap();
         let mut forged = good.clone();
         forged.keyring.slots = other.vault.seal().unwrap().keyring.slots;
@@ -886,51 +1109,115 @@ mod tests {
         let mut relabeled = good.clone();
         relabeled.keyring.slots[1].kind = SlotKind::Password;
         assert!(relabeled.unlock_recovery(&c.recovery_code).is_err());
-        // Cutting the cost of a password slot breaks its seal.
         let mut cheap = good;
         cheap.keyring.slots[0].argon2 = Some(Argon2Params { m: 32, t: 1, p: 1 });
         assert!(cheap.unlock_password("hunter2").is_err());
     }
 
+    /// A remote that knows no secret seals a key of its own to the victim's public slots: the
+    /// victim's password opens it, but nothing the victim holds endorses it.
     #[test]
-    fn a_retired_keyring_is_never_adopted_again() {
+    fn a_forged_rekey_is_untrusted() {
         let c = new_vault();
-        let before = reopen(&c.vault);
-        let mut a = before.unlock_password("hunter2").unwrap();
-        a.set_password("rotated", P, 10, "a").unwrap();
-        // An attacker who knew the old password replays an old copy with a newer-looking content.
-        let mut stale_old = before.unlock_password("hunter2").unwrap();
-        stale_old
-            .data
-            .add(Entry::new("Forged", "x", vec![5; 10]), 99, "z")
-            .unwrap();
-        assert_eq!(a.absorb(&stale_old, 20).unwrap(), KeyringChange::Kept);
-        // Its content is ignored too: an old key can forge entries or deletions.
-        assert!(a.data.entries.is_empty());
-        let f = reopen(&a);
-        assert!(f.unlock_password("rotated").is_ok());
-        assert!(f.unlock_password("hunter2").is_err());
+        let published = reopen(&c.vault);
+        let mut forged = published.unlock_password("hunter2").unwrap();
+        // The attacker cannot open it; simulate what it can build: fresh key, same public slots.
+        let dek = crypto::random_key().unwrap();
+        forged.key_id = key_id_of(&dek, &forged.id);
+        forged.dek = dek;
+        forged.reseal_all().unwrap();
+        forged.keyring.retired.push(published.key_id.clone());
+        forged.keyring.endorsements = vec![Endorsement {
+            from: published.key_id.clone(),
+            mac: b64(&[0u8; 32]),
+        }];
+        forged.data = VaultData::default();
+        let file = reopen(&forged);
+        assert!(
+            file.unlock_password("hunter2").is_ok(),
+            "the victim's password opens the forgery"
+        );
+        let victim = published.unlock_password("hunter2").unwrap();
+        assert_eq!(file.trust(&victim), Trust::Untrusted);
+        let mut v2 = published.unlock_password("hunter2").unwrap();
+        assert!(
+            v2.absorb(&file.unlock_password("hunter2").unwrap(), 9)
+                .is_err()
+        );
     }
 
     #[test]
-    fn absorb_adopts_a_rotation_made_elsewhere() {
+    fn a_real_rotation_is_endorsed_and_followed() {
         let c = new_vault();
         let file = reopen(&c.vault);
         let mut a = file.unlock_password("hunter2").unwrap();
         let mut b = file.unlock_password("hunter2").unwrap();
-        b.set_password("changed", P, 50, "b").unwrap();
-        b.data.add(Entry::new("B", "b", vec![2]), 60, "b").unwrap();
-        a.data.add(Entry::new("A", "a", vec![1]), 55, "a").unwrap();
-        assert_eq!(a.absorb(&b, 100).unwrap(), KeyringChange::Adopted);
-        assert_eq!(a.data.entries.len(), 2);
-        let f = reopen(&a);
-        assert!(f.unlock_password("changed").is_ok());
-        assert!(f.unlock_password("hunter2").is_err());
-        assert!(f.unlock_recovery(&c.recovery_code).is_ok());
-        // And the other way: b absorbing a's old-key copy keeps b's keyring.
-        let mut b2 = reopen(&b).unlock_password("changed").unwrap();
-        let a_old = file.unlock_password("hunter2").unwrap();
-        assert_eq!(b2.absorb(&a_old, 101).unwrap(), KeyringChange::Kept);
+        a.set_password("changed", P, 50, "a").unwrap();
+        a.data.add(Entry::new("A", "a", vec![1]), 51, "a").unwrap();
+        b.data.add(Entry::new("B", "b", vec![2]), 52, "b").unwrap();
+        b.add_device("b:pin", "B", Some("1234"), 53, "b").unwrap();
+        let af = reopen(&a);
+        assert_eq!(af.trust(&b), Trust::Endorsed);
+        let opened = af.unlock_password("changed").unwrap();
+        assert_eq!(
+            b.absorb_rotated(&opened, 60, "b").unwrap(),
+            KeyringChange::Adopted
+        );
+        let merged = reopen(&b);
+        assert!(merged.unlock_password("changed").is_ok());
+        assert!(merged.unlock_password("hunter2").is_err());
+        assert!(merged.unlock_recovery(&c.recovery_code).is_ok());
+        assert!(merged.device_slot("b:pin").is_some());
+        assert_eq!(
+            merged
+                .unlock_password("changed")
+                .unwrap()
+                .data
+                .entries
+                .len(),
+            2
+        );
+        // Several rotations later, a device still on the first key follows them too.
+        let mut a2 = merged.unlock_password("changed").unwrap();
+        a2.reset_recovery(70, "a").unwrap();
+        a2.set_password("third", P, 71, "a").unwrap();
+        let far = reopen(&a2);
+        let laggard = file.unlock_password("hunter2").unwrap();
+        assert_eq!(far.trust(&laggard), Trust::Endorsed);
+    }
+
+    #[test]
+    fn concurrent_rotations_need_confirmation_and_keep_the_newest_password() {
+        let c = new_vault();
+        let file = reopen(&c.vault);
+        let mut a = file.unlock_password("hunter2").unwrap();
+        let mut b = file.unlock_password("hunter2").unwrap();
+        a.set_password("new-pw", P, 50, "a").unwrap();
+        let code_b = b.reset_recovery(60, "b").unwrap();
+        let af = reopen(&a);
+        assert_eq!(af.trust(&b), Trust::Concurrent);
+        let opened = af.unlock_password("new-pw").unwrap();
+        b.absorb_rotated(&opened, 70, "b").unwrap();
+        let merged = reopen(&b);
+        assert!(merged.unlock_password("new-pw").is_ok());
+        assert!(
+            merged.unlock_password("hunter2").is_err(),
+            "the old password must not come back"
+        );
+        assert!(merged.unlock_recovery(&code_b).is_ok());
+        assert!(merged.unlock_recovery(&c.recovery_code).is_err());
+        // A rotated once more: neither A's nor B's key reads what follows.
+        assert_ne!(merged.key_id, af.key_id);
+        assert_eq!(merged.trust(&a), Trust::Endorsed);
+    }
+
+    #[test]
+    fn a_retired_copy_is_stale() {
+        let c = new_vault();
+        let before = reopen(&c.vault);
+        let mut a = before.unlock_password("hunter2").unwrap();
+        a.set_password("rotated", P, 10, "a").unwrap();
+        assert_eq!(before.trust(&a), Trust::Stale);
     }
 
     #[test]
@@ -946,12 +1233,22 @@ mod tests {
         assert!(with.unlock_passkey("cred1", &prf).is_ok());
         assert!(with.unlock_passkey("cred1", &[8u8; 32]).is_err());
         c.vault.remove_slot(&id, 4, "a").unwrap();
-        // A remote still holding the old file: merging it back does not restore the passkey.
-        let old = with.unlock_passkey("cred1", &prf).unwrap();
-        c.vault.absorb(&old, 5).unwrap();
+        assert_eq!(with.trust(&c.vault), Trust::Stale);
         let f = reopen(&c.vault);
         assert!(f.passkeys().is_empty());
         assert!(f.unlock_passkey("cred1", &prf).is_err());
+    }
+
+    #[test]
+    fn same_key_merges_slots_one_by_one() {
+        let c = new_vault();
+        let file = reopen(&c.vault);
+        let mut a = file.unlock_password("hunter2").unwrap();
+        let mut b = file.unlock_password("hunter2").unwrap();
+        a.add_passkey("ca", "sa", &[1u8; 32], "A", 5, "a").unwrap();
+        b.add_passkey("cb", "sb", &[2u8; 32], "B", 6, "b").unwrap();
+        a.absorb(&b, 7).unwrap();
+        assert_eq!(reopen(&a).passkeys().len(), 2);
     }
 
     #[test]

@@ -15,7 +15,15 @@ export function rekey(main: HTMLElement): void {
   }
   const pw = input({ type: 'password', autocomplete: 'current-password', required: true });
   const status = h('div', { class: 'form-status', 'aria-live': 'polite' });
-  const submit = button(t('unlock.submit'), () => {}, { kind: 'primary', type: 'submit' });
+  const submit = button(t('unlock.submit'), () => {}, {
+    kind: 'primary',
+    type: 'submit',
+    disabled: pending.concurrent,
+  });
+  const both = h('input', { type: 'checkbox', id: 'rekey-both' });
+  both.addEventListener('change', () => {
+    submit.disabled = !both.checked;
+  });
   const form = h(
     'form',
     {
@@ -37,6 +45,10 @@ export function rekey(main: HTMLElement): void {
       }) as EventListener,
     },
     field(t('rekey.password'), pw),
+    pending.concurrent ? notice(t('rekey.concurrent'), 'warn') : null,
+    pending.concurrent
+      ? h('label', { class: 'check', for: 'rekey-both' }, both, h('span', {}, t('rekey.both')))
+      : null,
     status,
     h('div', { class: 'actions' }, submit),
   );

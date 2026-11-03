@@ -275,22 +275,38 @@ fn receive_device(ctx: &Ctx, device: &serde_json::Value, yes: bool) -> anyhow::R
             .map(|(_, t)| t.clone())
             .unwrap_or_default()
     };
-    // The remote must hold this device's vault (or this device has none yet).
-    if let Some(first) = setup.remotes.first() {
-        let backend = crate::sync::backend_with(first, token_of(&first.name));
-        if let Some((content, _)) = backend.fetch()? {
-            let remote = otpx_core::vault::VaultFile::parse(&content).map_err(|e| {
-                fail(
-                    exit::CONFLICT,
-                    format!("the remote file is not an otpx vault: {e}"),
-                )
-            })?;
-            if let Some((local, _)) = ctx.store.read()?
-                && local.id != remote.id
-            {
+    // Every remote must hold this device's vault (or, on a new device, the same vault).
+    let mut seen: Option<String> = ctx.store.read()?.map(|(f, _)| f.id);
+    for r in &setup.remotes {
+        let backend = crate::sync::backend_with(r, token_of(&r.name));
+        match backend.fetch()? {
+            Some((content, _)) => {
+                let remote = otpx_core::vault::VaultFile::parse(&content).map_err(|e| {
+                    fail(
+                        exit::CONFLICT,
+                        format!("{}: not an otpx vault: {e}", r.name),
+                    )
+                })?;
+                match &seen {
+                    Some(id) if *id != remote.id => {
+                        return Err(fail(
+                            exit::CONFLICT,
+                            format!(
+                                "{} holds another vault than this device's: nothing was changed",
+                                r.name
+                            ),
+                        ));
+                    }
+                    _ => seen = Some(remote.id),
+                }
+            }
+            None => {
                 return Err(fail(
                     exit::CONFLICT,
-                    "that remote holds another vault than this device's: nothing was changed",
+                    format!(
+                        "{} holds no vault: make the link again on a device that syncs with it",
+                        r.name
+                    ),
                 ));
             }
         }

@@ -316,8 +316,25 @@ impl Backend for Gist {
             )?;
             if st == 200 {
                 let pv: Value = serde_json::from_str(&body).map_err(anyhow::Error::from)?;
-                if let Some(c) = pv["files"][&self.file]["content"].as_str() {
-                    return Err(PushError::Overwrote(c.to_owned()));
+                let f = &pv["files"][&self.file];
+                let content = if f["truncated"].as_bool() == Some(true) {
+                    let raw = f["raw_url"].as_str().unwrap_or_default();
+                    let mut r = agent()
+                        .get(raw)
+                        .call()
+                        .map_err(|e| fail(exit::NETWORK, format!("gist unreachable: {e}")))?;
+                    Some(
+                        r.body_mut()
+                            .with_config()
+                            .limit(64 << 20)
+                            .read_to_string()
+                            .map_err(anyhow::Error::from)?,
+                    )
+                } else {
+                    f["content"].as_str().map(str::to_owned)
+                };
+                if let Some(c) = content {
+                    return Err(PushError::Overwrote(c));
                 }
             }
         }

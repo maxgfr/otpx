@@ -33,7 +33,19 @@ https://github.com/maxgfr/otpx/security, not in a public issue.
   and retires the old one. Whoever knew the old password or code, or holds an old copy of the file
   (git history, gist revisions, backups), can read those old copies, never what follows.
   Other devices then ask for the current master password once (`otpx sync` in a terminal, or the
-  web app's *Unlock again*), and their unsynced changes are kept.
+  web app's *Unlock again*), and their unsynced changes are kept. Before rotating, otpx syncs, so
+  changes other devices pushed are not left behind under the old key.
+- **Who may re-key.** The public keys of the slots are in every copy of the file, so anyone could
+  seal a key of their own to them, and your password would open it. A device therefore accepts a
+  new key only when it carries an **endorsement** (an HMAC) made with the key that device holds
+  now: the rotating device endorses the new key with every key it rotated away from (those keys
+  travel inside the encrypted content). A remote without a key cannot endorse anything; someone
+  who knew an old password can only fool a device that is still on that old key. When two devices
+  re-keyed at the same time, otpx asks you to confirm both changes were yours, merges the keyrings
+  slot by slot (newest password, newest recovery code, every device; removals stick) and rotates
+  once more. A copy re-keyed by anything else is refused and nothing is sent to it.
+- **New devices** trust the first vault they fetch (there is nothing to compare it with yet):
+  set them up from your own repository, or from a device link you made yourself.
 
 **Quick unlock (device slots).**
 

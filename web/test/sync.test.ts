@@ -97,8 +97,8 @@ test('a password change elsewhere is detected, then adopted with the new passwor
   }
   expect(() => core.Vault.unlockPassword(rekeyed, 'old pw')).toThrow();
   const newer = core.Vault.unlockPassword(rekeyed, 'new pw');
-  newer.absorbOwn(b, 5);
-  expect(await syncOne(newer, remote, 'b')).toBe('pushed');
+  b.absorbRotated(newer, 5, 'b');
+  expect(await syncOne(b, remote, 'b')).toBe('pushed');
   const labels = (
     JSON.parse(core.Vault.unlockPassword(remote.content ?? '', 'new pw').entries()) as { label: string }[]
   ).map((e) => e.label);

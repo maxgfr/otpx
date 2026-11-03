@@ -78,6 +78,13 @@ pub fn merge(a: &VaultData, b: &VaultData, now_ms: u64) -> VaultData {
     } else {
         a.settings.clone()
     };
+    let mut keys: Vec<crate::model::OldKey> = Vec::new();
+    for k in a.keys.iter().chain(&b.keys) {
+        if !keys.iter().any(|x| x.id == k.id) {
+            keys.push(k.clone());
+        }
+    }
+    keys.sort_by(|x, y| x.id.cmp(&y.id));
     let mut entries: Vec<Entry> = entries.into_values().collect();
     entries.sort_by(|x, y| (x.created, &x.id).cmp(&(y.created, &y.id)));
     VaultData {
@@ -85,6 +92,7 @@ pub fn merge(a: &VaultData, b: &VaultData, now_ms: u64) -> VaultData {
         tombstones,
         identities,
         settings,
+        keys,
     }
 }
 

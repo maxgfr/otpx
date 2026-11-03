@@ -323,6 +323,7 @@ pub fn passwd(a: PasswdArgs, ctx: &Ctx) -> anyhow::Result<ExitCode> {
     if let Some(w) = strength_warning(&pw) {
         ctx.ui.warn(w);
     }
+    session::sync_before_rotation(ctx, &mut s);
     s.vault
         .set_password(&pw, kdf_params(), now_ms(), &ctx.config().device_id)
         .map_err(core_failure)?;
@@ -348,6 +349,7 @@ pub struct RecoveryArgs {
 pub fn recovery(a: RecoveryArgs, ctx: &Ctx) -> anyhow::Result<ExitCode> {
     if a.reset {
         let mut s = session::open(ctx)?;
+        session::sync_before_rotation(ctx, &mut s);
         let code = s
             .vault
             .reset_recovery(now_ms(), &ctx.config().device_id)

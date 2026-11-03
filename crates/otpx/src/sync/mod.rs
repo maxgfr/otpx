@@ -135,33 +135,37 @@ fn parse_remote(content: &str, s: &Session) -> anyhow::Result<VaultFile> {
 /// Merges a remote copy into `s`; returns whether it brought something and whether the remote
 /// needs the merged result.
 fn merge_remote(ctx: &Ctx, s: &mut Session, file: &VaultFile) -> anyhow::Result<(bool, bool)> {
+    use otpx_core::vault::Trust;
     let before = (s.vault.data.clone(), s.vault.keyring.clone());
-    if file.key_id == s.vault.key_id() {
-        let other = file.unlock_dek(s.vault.dek()).map_err(|_| {
-            fail(
-                exit::CONFLICT,
-                "the remote vault does not open with this vault's key: it was modified",
-            )
-        })?;
-        let change = s.vault.absorb(&other, now_ms()).map_err(core_failure)?;
-        crate::session::note_keyring(ctx, change);
-        let differs = s.vault.data != other.data || s.vault.keyring != other.keyring;
-        Ok((
-            before.0 != s.vault.data || before.1 != s.vault.keyring,
-            differs,
-        ))
-    } else if file.retired_by(&s.vault.keyring) {
+    match file.trust(&s.vault) {
+        Trust::Same => {
+            let other = file.unlock_dek(s.vault.dek()).map_err(|_| {
+                fail(
+                    exit::CONFLICT,
+                    "the remote vault does not open with this vault's key: it was modified",
+                )
+            })?;
+            let change = s.vault.absorb(&other, now_ms()).map_err(core_failure)?;
+            crate::session::note_keyring(ctx, change);
+            let differs = s.vault.data != other.data || s.vault.keyring != other.keyring;
+            Ok((
+                before.0 != s.vault.data || before.1 != s.vault.keyring,
+                differs,
+            ))
+        }
         // An old copy under a key this vault rotated away from (stale, or replayed): replace it.
-        Ok((false, true))
-    } else {
-        // Rotated on another device: unlock the new one, fold ours in.
-        crate::session::rekey(ctx, s, file)?;
-        crate::session::note_keyring(ctx, otpx_core::vault::KeyringChange::Adopted);
-        let other = file.unlock_dek(s.vault.dek()).map_err(core_failure)?;
-        Ok((
-            true,
-            s.vault.data != other.data || s.vault.keyring != other.keyring,
-        ))
+        Trust::Stale => Ok((false, true)),
+        t @ (Trust::Endorsed | Trust::Concurrent) => {
+            crate::session::rekey(ctx, s, file, t == Trust::Concurrent)?;
+            let other = file.unlock_dek(s.vault.dek()).ok();
+            let differs =
+                other.is_none_or(|o| s.vault.data != o.data || s.vault.keyring != o.keyring);
+            Ok((true, differs))
+        }
+        Trust::Untrusted => Err(fail(
+            exit::CONFLICT,
+            "the remote vault was re-keyed by something this device cannot verify (a tampered remote?): nothing was merged or sent",
+        )),
     }
 }
 

@@ -251,7 +251,8 @@ function absorbRemote(
   } catch (e) {
     const m = e instanceof Error ? e.message : String(e);
     if (m.startsWith('other-vault')) throw new SyncError('other-vault');
-    if (m === 'key-changed') throw new SyncError('key-changed', 0, content);
+    if (m === 'key-changed' || m === 'key-changed-concurrent') throw new SyncError(m, 0, content);
+    if (m === 'untrusted-key') throw new SyncError('untrusted-key');
     throw new SyncError(m);
   }
 }
