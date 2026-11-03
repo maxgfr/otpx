@@ -149,6 +149,10 @@ test('create, add, read codes, edit, share, lock and unlock', async ({ page, con
     await expect(p2.getByText('Added 1 account.')).toBeVisible();
     await other.close();
   }
+  // The offline cache registers under Trusted Types.
+  await expect
+    .poll(() => page.evaluate(async () => !!(await navigator.serviceWorker.getRegistration())))
+    .toBe(true);
   expect(errors).toEqual([]);
 });
 

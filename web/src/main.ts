@@ -258,9 +258,34 @@ async function boot(): Promise<void> {
   window.addEventListener('offline', () => toast(t('offline')));
   await route();
   document.body.classList.add('is-ready');
-  if ('serviceWorker' in navigator && location.protocol === 'https:') {
-    navigator.serviceWorker.register('sw.js', { scope: './' }).catch(() => undefined);
-  }
+  registerServiceWorker();
+}
+
+/** The offline cache. Trusted Types guard script URLs: one policy, for this one file. */
+function registerServiceWorker(): void {
+  const secure = location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname);
+  if (!('serviceWorker' in navigator) || !secure) return;
+  const tt = (
+    window as unknown as {
+      trustedTypes?: {
+        createPolicy(
+          n: string,
+          p: { createScriptURL(u: string): string },
+        ): { createScriptURL(u: string): string };
+      };
+    }
+  ).trustedTypes;
+  const url = tt
+    ? tt
+        .createPolicy('otpx-sw', {
+          createScriptURL: (u: string) => {
+            if (u !== 'sw.js') throw new TypeError('unexpected script URL');
+            return u;
+          },
+        })
+        .createScriptURL('sw.js')
+    : 'sw.js';
+  navigator.serviceWorker.register(url as unknown as string, { scope: './' }).catch(() => undefined);
 }
 
 boot().catch((e: unknown) => {

@@ -97,7 +97,7 @@ fn secured<R: std::io::Read>(mut r: Response<R>) -> Response<R> {
         ),
         (
             "Content-Security-Policy",
-            "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' https://api.github.com https://gist.githubusercontent.com; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; style-src 'self'; font-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types 'none'",
+            "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' https://api.github.com https://gist.githubusercontent.com; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; style-src 'self'; font-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types otpx-sw",
         ),
     ] {
         r.add_header(header(k, v));
