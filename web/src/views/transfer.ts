@@ -97,7 +97,7 @@ export function transfer(main: HTMLElement): void {
     ),
   );
 
-  const phone = h('div', { class: 'phone-out' });
+  const phone = h('div', { class: 'qr-box' });
   const showPhone = () => {
     const g = JSON.parse(v.googleTransfer('')) as { codes: string[]; left_out: string[] };
     let i = 0;

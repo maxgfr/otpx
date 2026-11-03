@@ -68,8 +68,8 @@ writeFileSync(
       start_url: './',
       scope: './',
       display: 'standalone',
-      background_color: '#f3f1ea',
-      theme_color: '#1f4d3b',
+      background_color: '#f2f0ea',
+      theme_color: '#0e422d',
       icons: [
         { src: 'icons/icon.svg', sizes: 'any', type: 'image/svg+xml' },
         { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },

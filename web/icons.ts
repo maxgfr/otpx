@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
 
 type RGB = [number, number, number];
-const GREEN: RGB = [0x1f, 0x4d, 0x3b];
+const GREEN: RGB = [0x0e, 0x42, 0x2d];
 const IVORY: RGB = [0xf7, 0xf3, 0xe8];
 const BRASS: RGB = [0xd2, 0xa5, 0x4a];
 

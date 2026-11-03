@@ -1353,7 +1353,6 @@ code {
     grid-template-columns: 1fr 1fr;
   }
 
-  .tags,
   .tabs .tab span {
     font-size: 0.8125rem;
   }
