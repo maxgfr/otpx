@@ -1,9 +1,9 @@
-target/
-dist/
-web/pkg/
-web/dist/
-node_modules/
-web/test-results/
-web/playwright-report/
-.impeccable/
 .DS_Store
+.impeccable/
+dist/
+node_modules/
+target/
+web/dist/
+web/pkg/
+web/playwright-report/
+web/test-results/
