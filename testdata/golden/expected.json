@@ -1,0 +1,23 @@
+{
+  "codes": [
+    {
+      "code": "005924",
+      "label": "GitHub (me@example.com)"
+    },
+    {
+      "code": "91819424",
+      "label": "Bank (alice)"
+    },
+    {
+      "code": "VHHQY",
+      "label": "Steam (gamer)"
+    },
+    {
+      "code": "969429",
+      "label": "Old (hotp)"
+    }
+  ],
+  "password": "golden password",
+  "recovery_code": "C6G4-KZR7-2J4J-CHDS-OZ4F-A45R-MZSX-AEK6-AKKQ-6FIH-M52C-5FXU-LR4A",
+  "time": 1234567890
+}

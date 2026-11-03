@@ -426,6 +426,25 @@ impl Unlocked {
         })
     }
 
+    /// Encrypts device-local data (the web app's sync settings and tokens) with a key
+    /// derived from the DEK: readable only once the vault is open.
+    pub fn seal_local(&self, plain: &[u8]) -> Result<String> {
+        let key = crypto::hkdf(self.dek.as_ref(), self.id.as_bytes(), b"otpx local data v1");
+        let (nonce, ct) = crypto::seal(&key, b"otpx-local-data:v1", plain)?;
+        Ok(format!(
+            "{}.{}",
+            crypto::b64url(&nonce),
+            crypto::b64url(&ct)
+        ))
+    }
+
+    /// Decrypts what [`Unlocked::seal_local`] produced.
+    pub fn open_local(&self, sealed: &str) -> Result<Zeroizing<Vec<u8>>> {
+        let (n, c) = sealed.split_once('.').ok_or(Error::Decrypt)?;
+        let key = crypto::hkdf(self.dek.as_ref(), self.id.as_bytes(), b"otpx local data v1");
+        crypto::open(&key, &unb64(n)?, b"otpx-local-data:v1", &unb64(c)?)
+    }
+
     /// Merges a newer copy of the same vault (another device's save): content entry by
     /// entry, slots from `other` when it changed them.
     pub fn absorb(&mut self, other: &Unlocked, now_ms: u64) -> Result<()> {
@@ -593,6 +612,15 @@ mod tests {
         let dek = w.open(b"1234|device").unwrap();
         assert!(f.unlock_dek(&dek).is_ok());
         assert!(w.open(b"1235|device").is_err());
+    }
+
+    #[test]
+    fn local_data() {
+        let c = new_vault();
+        let sealed = c.vault.seal_local(b"token").unwrap();
+        assert_eq!(c.vault.open_local(&sealed).unwrap().as_slice(), b"token");
+        let other = new_vault();
+        assert!(other.vault.open_local(&sealed).is_err());
     }
 
     #[test]
