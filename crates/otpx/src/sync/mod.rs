@@ -134,7 +134,12 @@ fn parse_remote(content: &str, s: &Session) -> anyhow::Result<VaultFile> {
 
 /// Merges a remote copy into `s`; returns whether it brought something and whether the remote
 /// needs the merged result.
-fn merge_remote(ctx: &Ctx, s: &mut Session, file: &VaultFile) -> anyhow::Result<(bool, bool)> {
+fn merge_remote(
+    ctx: &Ctx,
+    s: &mut Session,
+    file: &VaultFile,
+    seen_key: &str,
+) -> anyhow::Result<(bool, bool)> {
     use otpx_core::vault::Trust;
     let before = (s.vault.data.clone(), s.vault.keyring.clone());
     match file.trust(&s.vault) {
@@ -155,6 +160,12 @@ fn merge_remote(ctx: &Ctx, s: &mut Session, file: &VaultFile) -> anyhow::Result<
         }
         // An old copy under a key this vault rotated away from (stale, or replayed): replace it.
         Trust::Stale => Ok((false, true)),
+        // This remote already held our current key: a re-key endorsed only by an older key
+        // was not made concurrently with ours (an old-password forgery looks like that).
+        Trust::Concurrent if seen_key == s.vault.key_id() => Err(fail(
+            exit::CONFLICT,
+            "the remote vault was re-keyed from an old key after it had this device's key (a forgery made with an old password?): nothing was merged or sent",
+        )),
         t @ (Trust::Endorsed | Trust::Concurrent) => {
             crate::session::rekey(ctx, s, file, t == Trust::Concurrent)?;
             let other = file.unlock_dek(s.vault.dek()).ok();
@@ -170,7 +181,12 @@ fn merge_remote(ctx: &Ctx, s: &mut Session, file: &VaultFile) -> anyhow::Result<
 }
 
 /// Syncs `s` with one backend.
-pub fn sync_one(ctx: &Ctx, backend: &dyn Backend, s: &mut Session) -> anyhow::Result<Outcome> {
+pub fn sync_one(
+    ctx: &Ctx,
+    backend: &dyn Backend,
+    s: &mut Session,
+    seen_key: &str,
+) -> anyhow::Result<Outcome> {
     let device = ctx.config().device_name;
     let mut pulled = false;
     for attempt in 0..6 {
@@ -181,7 +197,7 @@ pub fn sync_one(ctx: &Ctx, backend: &dyn Backend, s: &mut Session) -> anyhow::Re
         let base = match &remote {
             Some((content, version)) => {
                 let file = parse_remote(content, s)?;
-                let (brought, differs) = merge_remote(ctx, s, &file)?;
+                let (brought, differs) = merge_remote(ctx, s, &file, seen_key)?;
                 pulled |= brought;
                 if !differs {
                     return Ok(if pulled {
@@ -208,7 +224,7 @@ pub fn sync_one(ctx: &Ctx, backend: &dyn Backend, s: &mut Session) -> anyhow::Re
             Err(PushError::Overwrote(lost)) => {
                 // Merge the version our write replaced, then write again.
                 let file = parse_remote(&lost, s)?;
-                pulled |= merge_remote(ctx, s, &file)?.0;
+                pulled |= merge_remote(ctx, s, &file, seen_key)?.0;
             }
             Err(PushError::Other(e)) => return Err(e),
         }
@@ -247,16 +263,18 @@ pub fn sync_all(
     let mut done = Vec::new();
     let mut errors = Vec::new();
     for r in &remotes {
-        let res = backend(ctx, r).and_then(|b| sync_one(ctx, b.as_ref(), s));
+        let res = backend(ctx, r).and_then(|b| sync_one(ctx, b.as_ref(), s, &r.seen_key));
         match res {
             Ok(o) => {
                 ctx.ui
                     .emit("synced", json!({ "remote": r.name, "result": o.as_str() }));
                 ctx.ui.note(&format!("{}: {}", r.name, o.as_str()));
                 let name = r.name.clone();
+                let key = s.vault.key_id().to_owned();
                 ctx.update_config(|c| {
                     if let Some(x) = c.remotes.iter_mut().find(|x| x.name == name) {
                         x.last_sync = now_ms();
+                        x.seen_key = key.clone();
                     }
                 })?;
                 done.push((r.name.clone(), o));

@@ -218,14 +218,21 @@ export class App {
           const result = await syncOne(vault, b, this.device.name);
           out.push({ name: r.name, result });
           const kept = this.remotes.find((x) => x.name === r.name);
-          if (kept) kept.lastSync = Date.now();
+          if (kept) {
+            kept.lastSync = Date.now();
+            kept.seenKey = vault.keyId();
+          }
         } catch (e) {
           if (e instanceof SyncError && e.message.startsWith('key-changed') && e.remote) {
-            this.rekey = {
-              name: r.name,
-              remote: e.remote,
-              concurrent: e.message === 'key-changed-concurrent',
-            };
+            const concurrent = e.message === 'key-changed-concurrent';
+            // That remote already held our key: a re-key endorsed only by an older key is not
+            // concurrent with ours, it is what an old-password forgery looks like.
+            if (concurrent && r.seenKey === vault.keyId()) {
+              out.push({ name: r.name, error: 'untrusted-key' });
+              this.lastError = `${r.name}: untrusted-key`;
+              continue;
+            }
+            this.rekey = { name: r.name, remote: e.remote, concurrent };
             out.push({ name: r.name, error: 'key-changed' });
             break;
           }
@@ -252,6 +259,12 @@ export class App {
       void this.syncAll();
     }
     return out;
+  }
+
+  /** Before changing the key here: take what other devices pushed (their copies under the old
+   *  key would otherwise wait until they sync again). */
+  async syncBeforeRotation(): Promise<void> {
+    if (this.vault && this.allRemotes().length) await this.syncAll();
   }
 
   /** The vault was re-keyed elsewhere: `newer` (the remote, unlocked with the current password)

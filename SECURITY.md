@@ -44,8 +44,26 @@ https://github.com/maxgfr/otpx/security, not in a public issue.
   re-keyed at the same time, otpx asks you to confirm both changes were yours, merges the keyrings
   slot by slot (newest password, newest recovery code, every device; removals stick) and rotates
   once more. A copy re-keyed by anything else is refused and nothing is sent to it.
+- Accepting a re-key also requires that the password typed is the **current** one of that copy (a
+  copy whose newest password is someone else's is refused), and lists every way to unlock it adds
+  (passkeys, devices, a new recovery code) for confirmation; scripts (`OTPX_PASSWORD`) and agents
+  cannot confirm, so they stop with exit code 3. A re-key endorsed only by an older key is refused
+  outright once the remote has held this device's current key.
 - **New devices** trust the first vault they fetch (there is nothing to compare it with yet):
   set them up from your own repository, or from a device link you made yourself.
+
+**Residual risks, stated plainly.**
+
+- Whoever learns an old master password *and* controls a remote can still present a forged re-key
+  to a device that has not synced since that password was changed. That device asks for the
+  current password and shows any added way to unlock; answer "no" if it lists a device or passkey
+  you did not add. After changing a leaked password, sync every device you use.
+- A rotation retires copies under the old key: an entry another device pushed in the seconds
+  between otpx's sync and the rotation comes back only when that device syncs again.
+- Gists have no conditional write: otpx merges the one revision its write replaced; two writes in
+  that instant could still overwrite one of them (GitHub repositories do not have this limit).
+- The vault id is not secret: a device link pointing at a repository seeded with an old copy of
+  your vault passes the id check. Only use device links you made yourself.
 
 **Quick unlock (device slots).**
 

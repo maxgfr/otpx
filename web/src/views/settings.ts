@@ -62,6 +62,7 @@ export async function settings(main: HTMLElement, rerender: () => void): Promise
       onsubmit: (async (e: Event) => {
         e.preventDefault();
         try {
+          await app.syncBeforeRotation();
           v.setPassword(pw.value, Date.now(), app.device.id);
           await app.save();
           pw.value = '';
@@ -91,6 +92,7 @@ export async function settings(main: HTMLElement, rerender: () => void): Promise
       { class: 'actions' },
       button(t('settings.recovery.make'), async () => {
         try {
+          await app.syncBeforeRotation();
           const code = v.resetRecovery(Date.now(), app.device.id);
           await app.save();
           mount(
@@ -125,6 +127,7 @@ export async function settings(main: HTMLElement, rerender: () => void): Promise
             button(
               t('remove'),
               async () => {
+                await app.syncBeforeRotation();
                 v.removeSlot(sl.id, Date.now(), app.device.id);
                 await app.save();
                 rerender();
@@ -239,6 +242,7 @@ export async function settings(main: HTMLElement, rerender: () => void): Promise
               button(
                 t('settings.pin.remove'),
                 async () => {
+                  await app.syncBeforeRotation();
                   await pin.disable(app.store, v, app.device.id);
                   await app.save();
                   rerender();

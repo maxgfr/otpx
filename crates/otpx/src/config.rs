@@ -81,6 +81,10 @@ pub struct Remote {
     /// Last successful sync (ms).
     #[serde(default)]
     pub last_sync: u64,
+    /// The vault key id this remote held after the last sync: a re-key endorsed only by an
+    /// older key cannot be a concurrent one any more.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub seen_key: String,
 }
 
 impl Remote {

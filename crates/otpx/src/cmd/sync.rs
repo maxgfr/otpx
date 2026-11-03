@@ -277,6 +277,7 @@ fn setup(a: SetupArgs, ctx: &Ctx) -> anyhow::Result<ExitCode> {
         name: name.clone(),
         kind,
         last_sync: 0,
+        seen_key: String::new(),
     };
     if let Some(t) = &token {
         ctx.secrets().set(&format!("remote:{name}"), t.as_bytes())?;
@@ -346,7 +347,7 @@ pub fn attach(
 
 fn sync_with(ctx: &Ctx, backend: &dyn Backend, remote: &Remote) -> anyhow::Result<()> {
     let mut s = session::open(ctx)?;
-    let o = sync::sync_one(ctx, backend, &mut s)?;
+    let o = sync::sync_one(ctx, backend, &mut s, &remote.seen_key)?;
     session::write_local(ctx, &mut s)?;
     ctx.ui.say(&format!(
         "{} is set up ({}).",

@@ -418,8 +418,9 @@ impl VaultFile {
         {
             let Ok(secret) = sk(slot) else { continue };
             if let Ok(dek) = open_slot(&self.id, slot, &secret)
-                && let Ok(v) = self.unlock_dek(&dek)
+                && let Ok(mut v) = self.unlock_dek(&dek)
             {
+                v.opened_by = Some(slot.id.clone());
                 return Ok(v);
             }
         }
@@ -452,7 +453,9 @@ impl VaultFile {
             })
         {
             if let Ok(dek) = open_slot(&self.id, slot, &sk) {
-                return self.unlock_dek(&dek);
+                let mut v = self.unlock_dek(&dek)?;
+                v.opened_by = Some(slot.id.clone());
+                return Ok(v);
             }
         }
         Err(Error::Decrypt)
@@ -478,7 +481,9 @@ impl VaultFile {
             .ok_or_else(|| Error::Entry("this device's quick unlock was removed".into()))?;
         let material = device_material(device_key, pin, slot.salt.as_deref(), slot.argon2)?;
         let dek = open_slot(&self.id, slot, &slot_secret(&material, SlotKind::Device))?;
-        self.unlock_dek(&dek)
+        let mut v = self.unlock_dek(&dek)?;
+        v.opened_by = Some(slot.id.clone());
+        Ok(v)
     }
 
     /// Unlocks with the DEK itself (cached by the OS keychain for a session).
@@ -502,6 +507,7 @@ impl VaultFile {
             serde_json::from_slice(&plain).map_err(|e| Error::format("vault content", e))?;
         Ok(Unlocked {
             id: self.id.clone(),
+            opened_by: None,
             key_id: self.key_id.clone(),
             dek: Zeroizing::new(*dek),
             keyring: self.keyring.clone(),
@@ -561,6 +567,8 @@ impl VaultFile {
 pub struct Unlocked {
     /// Vault id.
     pub id: String,
+    /// The slot this copy was opened with (None: opened with a cached key).
+    pub opened_by: Option<String>,
     key_id: String,
     dek: Key,
     /// Ways to unlock (change them through the methods below).
@@ -607,6 +615,7 @@ impl Unlocked {
         let id = random_id(16)?;
         let dek = crypto::random_key()?;
         let mut v = Unlocked {
+            opened_by: None,
             key_id: key_id_of(&dek, &id),
             id,
             dek,
@@ -962,6 +971,39 @@ impl Unlocked {
         )
     }
 
+    /// What taking `other`'s keyring would add or replace here, beyond the slot it was opened
+    /// with: each line names a way to unlock ("recovery code", "device MacBook (touchid)",
+    /// "passkey Phone"). Show it to the user before [`Unlocked::absorb_rotated`]: someone who
+    /// knew an old password could slip a slot of their own into a re-keyed copy.
+    pub fn keyring_changes(&self, other: &Unlocked) -> Vec<String> {
+        let (merged, _) = merge_slots(&self.keyring, &other.keyring);
+        merged
+            .iter()
+            .filter(|s| !self.keyring.slots.iter().any(|x| x.id == s.id))
+            .filter(|s| other.opened_by.as_deref() != Some(s.id.as_str()))
+            .map(|s| match s.kind {
+                SlotKind::Password => "master password".to_owned(),
+                SlotKind::Recovery => "recovery code".to_owned(),
+                SlotKind::Passkey => format!(
+                    "passkey {}",
+                    if s.label.is_empty() {
+                        "(unnamed)"
+                    } else {
+                        &s.label
+                    }
+                ),
+                SlotKind::Device => format!(
+                    "quick unlock {}",
+                    if s.label.is_empty() {
+                        s.device.as_deref().unwrap_or("?")
+                    } else {
+                        &s.label
+                    }
+                ),
+            })
+            .collect()
+    }
+
     /// Takes a copy re-keyed elsewhere ([`Trust::Endorsed`] or, once the user confirmed,
     /// [`Trust::Concurrent`]), opened with the current password. This copy's entries and slots
     /// are kept. When this copy had re-keyed too, the key rotates once more, so neither
@@ -976,6 +1018,20 @@ impl Unlocked {
             return Err(Error::Entry("these are two different vaults".into()));
         }
         let linear = other.keyring.retired.contains(&self.key_id);
+        // The slot the user just opened must survive the merge: otherwise the copy carries a
+        // newer password (or code) than the one typed, which is what a forgery made with an
+        // old password looks like.
+        let (merged, _) = merge_slots(&self.keyring, &other.keyring);
+        let Some(opened) = other.opened_by.as_deref() else {
+            return Err(Error::Entry(
+                "open the re-keyed copy with the master password first".into(),
+            ));
+        };
+        if !merged.iter().any(|s| s.id == opened) {
+            return Err(Error::Entry(
+                "the password typed is not the current one of that copy (an older or forged copy?): nothing was merged".into(),
+            ));
+        }
         self.data = crate::merge::merge(&self.data, &other.data, now_ms);
         if !self.data.keys.iter().any(|k| k.id == self.key_id) {
             self.data.keys.push(OldKey {
@@ -995,6 +1051,7 @@ impl Unlocked {
         };
         self.dek = Zeroizing::new(*other.dek);
         self.key_id = other.key_id.clone();
+        self.opened_by = other.opened_by.clone();
         self.reseal_all()?;
         if !linear {
             self.rotate(now_ms, device)?;
@@ -1197,6 +1254,7 @@ mod tests {
         let af = reopen(&a);
         assert_eq!(af.trust(&b), Trust::Concurrent);
         let opened = af.unlock_password("new-pw").unwrap();
+        assert_eq!(b.keyring_changes(&opened), Vec::<String>::new());
         b.absorb_rotated(&opened, 70, "b").unwrap();
         let merged = reopen(&b);
         assert!(merged.unlock_password("new-pw").is_ok());
@@ -1209,6 +1267,63 @@ mod tests {
         // A rotated once more: neither A's nor B's key reads what follows.
         assert_ne!(merged.key_id, af.key_id);
         assert_eq!(merged.trust(&a), Trust::Endorsed);
+    }
+
+    /// Someone with an old password and an old copy forges a re-key whose newest password is
+    /// theirs, keeping the owner's current password slot so it still opens.
+    #[test]
+    fn an_old_key_forgery_is_refused() {
+        let c = new_vault();
+        let old = reopen(&c.vault);
+        let mut owner = old.unlock_password("hunter2").unwrap();
+        owner.set_password("new-pw", P, 50, "owner").unwrap();
+        let published = reopen(&owner);
+        let mut forged = old.unlock_password("hunter2").unwrap();
+        forged
+            .set_password("attacker-pw", P, 9_000_000_000_000, "x")
+            .unwrap();
+        let owner_slot = published
+            .keyring
+            .slots
+            .iter()
+            .find(|s| s.kind == SlotKind::Password)
+            .unwrap()
+            .clone();
+        forged.keyring.slots.push(owner_slot);
+        forged.reseal_all().unwrap();
+        let file = reopen(&forged);
+        let opened = file.unlock_password("new-pw").unwrap();
+        // A device still on the old key sees an endorsed re-key...
+        let mut stale = old.unlock_password("hunter2").unwrap();
+        assert_eq!(file.trust(&stale), Trust::Endorsed);
+        // ...but the password typed did not win the merge: refused.
+        assert!(stale.absorb_rotated(&opened, 60, "s").is_err());
+        // A forgery that keeps the owner's password but adds its own device slot is shown.
+        let mut sneaky = old.unlock_password("hunter2").unwrap();
+        sneaky
+            .add_device("evil:touchid", "MacBook (touchid)", None, 70, "x")
+            .unwrap();
+        sneaky
+            .keyring
+            .slots
+            .retain(|s| s.kind != SlotKind::Password);
+        let mut owner_slot = published
+            .keyring
+            .slots
+            .iter()
+            .find(|s| s.kind == SlotKind::Password)
+            .unwrap()
+            .clone();
+        owner_slot.stamp.t = 9_000_000_000_000;
+        sneaky.keyring.slots.push(owner_slot);
+        sneaky.rotate(71, "x").unwrap();
+        let f2 = reopen(&sneaky);
+        let o2 = f2.unlock_password("new-pw").unwrap();
+        let laggard = old.unlock_password("hunter2").unwrap();
+        assert_eq!(
+            laggard.keyring_changes(&o2),
+            vec!["quick unlock MacBook (touchid)".to_owned()]
+        );
     }
 
     #[test]

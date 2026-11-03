@@ -408,12 +408,12 @@ pub fn rekey(
             ));
         }
     }
-    let other = if let Ok(pw) = std::env::var("OTPX_PASSWORD")
-        && !pw.is_empty()
-        && !concurrent
-    {
+    let from_env = std::env::var("OTPX_PASSWORD")
+        .ok()
+        .filter(|p| !p.is_empty() && !concurrent);
+    let other = if let Some(pw) = &from_env {
         newer
-            .unlock_password(&pw)
+            .unlock_password(pw)
             .map_err(|_| fail(exit::AUTH, "OTPX_PASSWORD does not open the re-keyed vault"))?
     } else {
         if !ui::interactive() {
@@ -436,6 +436,32 @@ pub fn rekey(
         }
         found.ok_or_else(|| fail(exit::AUTH, "wrong master password"))?
     };
+    // New ways to unlock that come with the other copy must be the user's own.
+    let changes = s.vault.keyring_changes(&other);
+    if !changes.is_empty() {
+        if from_env.is_some() || !ui::interactive() {
+            return Err(fail(
+                exit::LOCKED,
+                format!(
+                    "the re-keyed vault adds ways to unlock ({}): run `otpx sync` in a terminal to review them",
+                    changes.join(", ")
+                ),
+            ));
+        }
+        ctx.ui.note("It also brings these ways to unlock:");
+        for c in &changes {
+            ctx.ui.note(&format!("  {}", ui::clean(c)));
+        }
+        if !ctx
+            .ui
+            .confirm("Are these all yours (set up on your own devices)")?
+        {
+            return Err(fail(
+                exit::CONFLICT,
+                "not merged: change your master password on a trusted device, then sync it",
+            ));
+        }
+    }
     s.vault
         .absorb_rotated(&other, now_ms(), &device)
         .map_err(core_failure)?;

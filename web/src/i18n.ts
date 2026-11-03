@@ -242,6 +242,8 @@ const en = {
   'rekey.concurrent':
     'This vault was re-keyed on another device while this browser re-keyed it too. Someone holding an old password could cause this: continue only if you made both changes.',
   'rekey.both': 'I made both changes',
+  'rekey.changes': 'It also brings these ways to unlock: {list}. Continue only if they are all yours.',
+  'rekey.confirm': 'They are mine, continue',
   'settings.title': 'Settings',
   'settings.security': 'Security',
   'settings.autolock': 'Lock after',
@@ -545,6 +547,9 @@ const fr: Record<Key, string> = {
   'rekey.concurrent':
     "Ce coffre a changé de clé sur un autre appareil pendant que ce navigateur en changeait aussi. Quelqu'un qui connaît un ancien mot de passe pourrait provoquer cela : ne continue que si tu as fait les deux changements.",
   'rekey.both': "J'ai fait les deux changements",
+  'rekey.changes':
+    'Il apporte aussi ces moyens de déverrouiller : {list}. Ne continue que si ce sont tous les tiens.',
+  'rekey.confirm': 'Ce sont les miens, continuer',
   'settings.title': 'Réglages',
   'settings.security': 'Sécurité',
   'settings.autolock': 'Verrouiller après',

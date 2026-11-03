@@ -21,10 +21,19 @@ export type RemoteConfig =
       branch: string;
       token: string;
       lastSync: number;
+      seenKey?: string;
     }
-  | { kind: 'gist'; name: string; id: string; file: string; token: string; lastSync: number }
-  | { kind: 'local'; name: string; token: string; lastSync: number }
-  | { kind: 'file'; name: string; lastSync: number };
+  | {
+      kind: 'gist';
+      name: string;
+      id: string;
+      file: string;
+      token: string;
+      lastSync: number;
+      seenKey?: string;
+    }
+  | { kind: 'local'; name: string; token: string; lastSync: number; seenKey?: string }
+  | { kind: 'file'; name: string; lastSync: number; seenKey?: string };
 
 export class SyncError extends Error {
   constructor(
