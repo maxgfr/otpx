@@ -2,7 +2,7 @@
 
 import { type Scanner, scan } from '../camera';
 import { h, icon, mount } from '../dom';
-import { t } from '../i18n';
+import { t, tn } from '../i18n';
 import { app } from '../state';
 import { button, bytesOf, field, input, notice, pageHead, select, toast } from '../ui';
 import { core, type ImportResult, message } from '../wasm';
@@ -11,7 +11,7 @@ type Tab = 'scan' | 'image' | 'paste' | 'manual';
 
 /** Explains an import result in one notice. */
 export function report(r: ImportResult): HTMLElement {
-  const parts = [t('add.done', { added: r.added })];
+  const parts = [tn('add.done', r.added)];
   if (r.duplicates) parts.push(t('add.duplicates', { n: r.duplicates }));
   if (r.missing.length) parts.push(t('add.missing', { list: r.missing.map((i) => i + 1).join(', ') }));
   if (r.skipped.length) parts.push(t('add.skipped', { list: r.skipped.join('; ') }));
@@ -100,7 +100,7 @@ export function add(main: HTMLElement, initial: Tab = 'scan'): () => void {
             scanner = await scan(video, (texts) => {
               const migration = texts.filter((x) => x.startsWith('otpauth-migration://'));
               void addText(texts.join('\n'));
-              if (migration.length) toast(t('add.scan.found', { n: texts.length }));
+              if (migration.length) toast(tn('add.scan.found', texts.length));
             });
             frame.classList.add('is-live');
             mount(
@@ -232,7 +232,7 @@ export function add(main: HTMLElement, initial: Tab = 'scan'): () => void {
                   app.device.id,
                 );
                 await app.save();
-                toast(t('add.done', { added: 1 }));
+                toast(tn('add.done', 1));
                 location.hash = '#/';
               } catch (err) {
                 mount(status, notice(message(err), 'error'));

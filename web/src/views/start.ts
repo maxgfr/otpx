@@ -1,7 +1,7 @@
 // Before the vault is open: welcome, create, recovery code, unlock, fetch from GitHub, open a file or a link.
 
 import { h, icon, mount } from '../dom';
-import { t } from '../i18n';
+import { t, tn } from '../i18n';
 import * as passkey from '../passkey';
 import * as pin from '../pin';
 import { app } from '../state';
@@ -198,7 +198,7 @@ export async function unlock(main: HTMLElement, opened: (v: Vault) => void): Pro
                 }
                 if ('left' in r) {
                   busy(false);
-                  mount(status, notice(t('unlock.wrong.pin', { n: r.left }), 'error'));
+                  mount(status, notice(tn('unlock.wrong.pin', r.left), 'error'));
                   secret.select();
                   return;
                 }

@@ -1,6 +1,6 @@
 // Settings: auto-lock, clipboard, password, recovery, passkeys, PIN, device, language.
 
-import { h, mount } from '../dom';
+import { h, mount, rich } from '../dom';
 import { getLang, setLang, t } from '../i18n';
 import * as passkey from '../passkey';
 import * as pin from '../pin';
@@ -84,12 +84,12 @@ export async function settings(main: HTMLElement, rerender: () => void): Promise
   const rcOut = h('div', {});
   const rcBlock = h(
     'div',
-    {},
+    { class: 'form' },
     h('p', {}, t('settings.recovery.lead')),
     h(
       'div',
       { class: 'actions' },
-      button(t('settings.recovery'), async () => {
+      button(t('settings.recovery.make'), async () => {
         try {
           const code = v.resetRecovery(Date.now());
           await app.save();
@@ -259,8 +259,8 @@ export async function settings(main: HTMLElement, rerender: () => void): Promise
         { class: 'block tag-plate' },
         h('h2', {}, t('settings.about')),
         h('p', {}, t('settings.about.lead', { version: (await import('../wasm')).core.version() })),
-        h('p', { class: 'hint' }, t('settings.cli')),
-        h('p', { class: 'hint' }, t('settings.origin')),
+        h('p', { class: 'hint' }, rich(t('settings.cli'))),
+        h('p', { class: 'hint' }, rich(t('settings.origin'))),
         h(
           'p',
           {},

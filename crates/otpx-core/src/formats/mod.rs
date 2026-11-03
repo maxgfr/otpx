@@ -286,7 +286,7 @@ impl ExportFormat {
         (
             "aegis",
             ExportFormat::Aegis,
-            "Aegis vault (encrypted with --password)",
+            "Aegis vault (encrypted when a password is given)",
         ),
         ("2fas", ExportFormat::TwoFas, "2FAS backup"),
         ("andotp", ExportFormat::AndOtp, "andOTP backup"),

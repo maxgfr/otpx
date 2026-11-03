@@ -1,7 +1,7 @@
 // Share links and device links opened from #s=…
 
 import { h, mount } from '../dom';
-import { t } from '../i18n';
+import { t, tn } from '../i18n';
 import { app } from '../state';
 import { fromDeviceSetup } from '../sync';
 import { button, field, input, notice, pageHead, toast } from '../ui';
@@ -19,7 +19,7 @@ export const pendingLink = { value: null as string | null };
 
 export function receive(main: HTMLElement, link: string): void {
   const status = h('div', { class: 'form-status', 'aria-live': 'polite' });
-  const body = h('div', {});
+  const body = h('div', { class: 'narrow' });
   const show = (o: Opened) => {
     if (o.device) {
       const { remotes, skipped } = fromDeviceSetup(o.device);
@@ -68,7 +68,7 @@ export function receive(main: HTMLElement, link: string): void {
     }
     mount(
       body,
-      h('p', { class: 'lead' }, t('receive.lead', { n: o.entries.length })),
+      h('p', { class: 'lead' }, tn('receive.lead', o.entries.length)),
       h(
         'ul',
         { class: 'board board-preview' },

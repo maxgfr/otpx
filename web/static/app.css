@@ -32,6 +32,8 @@
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --measure: 46rem;
 
+  --focus: var(--baize);
+  --vermilion-ink: oklch(47% 0.18 32);
   --size-code: 1.75rem;
   --size-body: 1rem;
   --size-small: 0.875rem;
@@ -55,6 +57,20 @@
     --vermilion: oklch(64% 0.18 32);
     --vermilion-soft: oklch(28% 0.06 32);
     --hole: oklch(16% 0.024 165);
+    --focus: oklch(86% 0.09 85);
+    --vermilion-ink: oklch(72% 0.16 32);
+  }
+
+  /* Ivory plates keep light-scheme controls and a dark focus ring. */
+  :is(.tag-plate, .remote-add, .tag, .choice, .tabs, .remote) {
+    color-scheme: light;
+    --focus: var(--baize);
+    --vermilion-ink: oklch(47% 0.18 32);
+  }
+
+  /* The punched hole shows the dark ground through the tag: light text there. */
+  .eyelet-hole {
+    --vermilion-ink: oklch(72% 0.16 32);
   }
 }
 
@@ -85,7 +101,7 @@ body {
 }
 
 :focus-visible {
-  outline: 2px solid var(--brass);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -161,6 +177,7 @@ p {
 }
 
 .bar {
+  --focus: var(--brass);
   position: sticky;
   top: 0;
   z-index: 5;
@@ -264,7 +281,7 @@ p {
 
 .sync-state.is-none,
 .sync-state.is-error {
-  color: var(--brass);
+  color: var(--on-baize);
 }
 
 .sync-state.is-busy .icon {
@@ -357,9 +374,14 @@ p {
 }
 
 .tag-code {
-  position: relative;
   display: grid;
+  grid-template-rows: auto auto;
   justify-items: end;
+}
+
+.tag-code .next,
+.tag-code .copied-mark {
+  grid-area: 2 / 1;
 }
 
 .code {
@@ -379,8 +401,6 @@ p {
 }
 
 .copied-mark {
-  position: absolute;
-  inset: auto 0 -0.125rem auto;
   display: none;
   align-items: center;
   gap: 0.25rem;
@@ -420,7 +440,7 @@ p {
 
 @media (hover: none) {
   .board .next {
-    display: none;
+    visibility: hidden;
   }
 }
 
@@ -491,7 +511,7 @@ p {
 }
 
 .eyelet.is-ending .eyelet-hole {
-  color: var(--vermilion);
+  color: var(--vermilion-ink);
 }
 
 .nomatch {
@@ -575,7 +595,7 @@ p {
   color: var(--fg-2);
 }
 
-.tag-plate .hint {
+:is(.tag-plate, .remote-add, .tag, .choice, .remote) .hint {
   color: var(--tag-ink-2);
 }
 
@@ -602,7 +622,7 @@ textarea {
 
 :where(input, textarea, select):focus-visible {
   outline-offset: 0;
-  border-color: var(--brass);
+  border-color: var(--focus);
 }
 
 input:disabled {
@@ -715,7 +735,7 @@ input:disabled {
 }
 
 .file-label:focus-within {
-  outline: 2px solid var(--brass);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 
@@ -737,7 +757,7 @@ input:disabled {
   margin-top: 0.0625rem;
 }
 
-.tag-plate .notice {
+:is(.tag-plate, .remote-add) .notice {
   border-color: var(--tag-edge);
   color: var(--tag-ink-2);
 }
@@ -1226,6 +1246,26 @@ details > summary::-webkit-details-marker {
   grid-template-columns: 1fr;
 }
 
+code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.92em;
+  padding: 0.05em 0.35em;
+  border-radius: 5px;
+  background: color-mix(in oklch, currentColor 9%, transparent);
+}
+
+.link-row {
+  display: flex;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.link-row input {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--size-small);
+}
+
 /* Toast */
 
 .toast {
@@ -1275,7 +1315,11 @@ details > summary::-webkit-details-marker {
   }
 
   .sync-state span {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
   }
 
   :root {
@@ -1287,10 +1331,21 @@ details > summary::-webkit-details-marker {
     padding-left: 0.75rem;
   }
 
-  /* One account owns the phone screen. */
-  .tag-big {
-    min-height: 40vh;
-    align-content: center;
+  /* One account owns the phone screen: the code takes the width. */
+  .tag-big .code-big {
+    font-size: clamp(2.75rem, 16.5vw, 5.5rem);
+  }
+
+  .tag-big .code-big.code-8 {
+    font-size: clamp(2.25rem, 12.5vw, 4.5rem);
+  }
+
+  .account-head h1 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
   }
 
   .actions-wrap {

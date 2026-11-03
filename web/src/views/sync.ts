@@ -1,10 +1,10 @@
 // Remotes: list, sync now, add GitHub / gist / file, device link.
 
-import { h, icon, mount, svgUrl } from '../dom';
+import { h, icon, mount, rich, svgUrl } from '../dom';
 import { duration, t } from '../i18n';
 import { app } from '../state';
 import { createGist, describeRemote, type Outcome, type RemoteConfig } from '../sync';
-import { button, field, input, notice, pageHead, toast } from '../ui';
+import { button, field, input, linkRow, notice, pageHead, toast } from '../ui';
 import { core, message } from '../wasm';
 
 const results: Record<Outcome, () => string> = {
@@ -52,7 +52,7 @@ export function syncView(main: HTMLElement, base: string): void {
             { class: 'remote-text' },
             h('strong', {}, r.name),
             h('span', {}, describeRemote(r)),
-            h('span', { class: 'hint' }, r.kind === 'local' ? t('sync.local.lead') : when(r)),
+            h('span', { class: 'hint' }, rich(r.kind === 'local' ? t('sync.local.lead') : when(r))),
           ),
           r.kind === 'local'
             ? null
@@ -222,7 +222,7 @@ export function syncView(main: HTMLElement, base: string): void {
           const link = v.deviceLink(base, JSON.stringify(device), Date.now() + 15 * 60 * 1000, pass.value);
           mount(
             linkOut,
-            h('textarea', { class: 'link-out', readonly: true, rows: '4', spellcheck: 'false' }, link),
+            linkRow(link),
             h('img', {
               class: 'qr',
               alt: t('account.qr'),

@@ -117,6 +117,14 @@ export function icon(name: keyof typeof PATHS, label?: string): SVGSVGElement {
 
 export type IconName = keyof typeof PATHS;
 
+/** Text where `backticked` parts become <code> nodes. */
+export function rich(text: string): (string | HTMLElement)[] {
+  return text
+    .split(/(`[^`]+`)/)
+    .filter(Boolean)
+    .map((part) => (part.startsWith('`') && part.endsWith('`') ? h('code', {}, part.slice(1, -1)) : part));
+}
+
 /** A data: URL for an SVG document (QR codes), shown with <img> so no markup is injected. */
 export function svgUrl(svg: string): string {
   const bytes = new TextEncoder().encode(svg);

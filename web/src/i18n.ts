@@ -34,7 +34,8 @@ const en = {
   'unlock.recovery.label': 'Recovery code',
   'unlock.password.instead': 'Use the master password',
   'unlock.wrong': 'Wrong password. Try again, or use the recovery code.',
-  'unlock.wrong.pin': 'Wrong PIN. {n} attempt(s) left.',
+  'unlock.wrong.pin.one': 'Wrong PIN. {n} attempt left.',
+  'unlock.wrong.pin.other': 'Wrong PIN. {n} attempts left.',
   'unlock.pin.erased': 'Too many wrong PINs: the PIN is erased. Use the master password.',
   'unlock.wrong.recovery': 'This recovery code does not open the vault.',
   'unlock.working': 'Unlocking…',
@@ -122,7 +123,8 @@ const en = {
   'add.scan.start': 'Start the camera',
   'add.scan.stop': 'Stop',
   'add.scan.denied': 'The camera is not available here. Use an image or paste the link.',
-  'add.scan.found': 'Found {n} account(s).',
+  'add.scan.found.one': 'Found {n} account.',
+  'add.scan.found.other': 'Found {n} accounts.',
   'add.scan.batch': 'Transfer code {i} of {n} read. Show the next one.',
   'add.image.lead': 'A screenshot or photo of the QR code. Images stay in this browser.',
   'add.image.pick': 'Choose images',
@@ -135,7 +137,8 @@ const en = {
   'add.manual.secret': 'Secret key',
   'add.manual.secret.hint': 'Letters and digits shown by the site, spaces allowed.',
   'add.manual.submit': 'Add the account',
-  'add.done': 'Added {added} account(s).',
+  'add.done.one': 'Added {n} account.',
+  'add.done.other': 'Added {n} accounts.',
   'add.duplicates': '{n} already in the vault.',
   'add.skipped': 'Skipped: {list}',
   'add.missing': 'Transfer codes still to scan: {list}.',
@@ -212,7 +215,8 @@ const en = {
   'link.label': 'Link',
   'link.submit': 'Open',
   'receive.title': 'Shared with you',
-  'receive.lead': '{n} account(s) in this link.',
+  'receive.lead.one': '{n} account in this link.',
+  'receive.lead.other': '{n} accounts in this link.',
   'receive.passphrase': 'Passphrase',
   'receive.open': 'Open',
   'receive.add': 'Add to my vault',
@@ -233,6 +237,7 @@ const en = {
   'settings.password.done': 'Master password changed. Other devices take it at their next sync.',
   'settings.recovery': 'New recovery code',
   'settings.recovery.lead': 'The current code stops working.',
+  'settings.recovery.make': 'Make a new code',
   'settings.passkeys': 'Touch ID / Face ID',
   'settings.passkeys.lead':
     'A passkey unlocks the vault with your fingerprint or face, on devices that support passkey PRF.',
@@ -253,7 +258,7 @@ const en = {
   'settings.language': 'Language',
   'settings.about': 'About',
   'settings.about.lead': 'otpx {version}. Same Rust core as the terminal app. Open source.',
-  'settings.cli': 'Install the terminal app: brew install maxgfr/tap/otpx',
+  'settings.cli': 'Install the terminal app: `brew install maxgfr/tap/otpx`',
   'settings.origin':
     'This page shares its origin with other sites of maxgfr.github.io. Only the encrypted vault is stored; for an isolated origin, run `otpx web`.',
   'settings.forget': 'Forget this browser',
@@ -307,7 +312,8 @@ const fr: Record<Key, string> = {
   'unlock.recovery.label': 'Code de secours',
   'unlock.password.instead': 'Utiliser le mot de passe maître',
   'unlock.wrong': 'Mauvais mot de passe. Réessaie, ou utilise le code de secours.',
-  'unlock.wrong.pin': 'Mauvais code PIN. Encore {n} essai(s).',
+  'unlock.wrong.pin.one': 'Mauvais code PIN. Encore {n} essai.',
+  'unlock.wrong.pin.other': 'Mauvais code PIN. Encore {n} essais.',
   'unlock.pin.erased': 'Trop de codes PIN faux : le PIN est effacé. Utilise le mot de passe maître.',
   'unlock.wrong.recovery': "Ce code de secours n'ouvre pas le coffre.",
   'unlock.working': 'Déverrouillage…',
@@ -398,7 +404,8 @@ const fr: Record<Key, string> = {
   'add.scan.start': 'Allumer la caméra',
   'add.scan.stop': 'Arrêter',
   'add.scan.denied': "La caméra n'est pas disponible ici. Utilise une image ou colle le lien.",
-  'add.scan.found': '{n} compte(s) trouvé(s).',
+  'add.scan.found.one': '{n} compte trouvé.',
+  'add.scan.found.other': '{n} comptes trouvés.',
   'add.scan.batch': 'Code de transfert {i} sur {n} lu. Montre le suivant.',
   'add.image.lead': 'Une capture ou une photo du QR code. Les images restent dans ce navigateur.',
   'add.image.pick': 'Choisir des images',
@@ -411,7 +418,8 @@ const fr: Record<Key, string> = {
   'add.manual.secret': 'Clé secrète',
   'add.manual.secret.hint': 'Les lettres et chiffres affichés par le site, espaces acceptés.',
   'add.manual.submit': 'Ajouter le compte',
-  'add.done': '{added} compte(s) ajouté(s).',
+  'add.done.one': '{n} compte ajouté.',
+  'add.done.other': '{n} comptes ajoutés.',
   'add.duplicates': '{n} déjà dans le coffre.',
   'add.skipped': 'Ignorés : {list}',
   'add.missing': 'Codes de transfert encore à scanner : {list}.',
@@ -490,7 +498,8 @@ const fr: Record<Key, string> = {
   'link.label': 'Lien',
   'link.submit': 'Ouvrir',
   'receive.title': 'Partagé avec toi',
-  'receive.lead': '{n} compte(s) dans ce lien.',
+  'receive.lead.one': '{n} compte dans ce lien.',
+  'receive.lead.other': '{n} comptes dans ce lien.',
   'receive.passphrase': 'Phrase de passe',
   'receive.open': 'Ouvrir',
   'receive.add': 'Ajouter à mon coffre',
@@ -512,6 +521,7 @@ const fr: Record<Key, string> = {
     'Mot de passe maître changé. Les autres appareils le prennent à leur prochaine synchro.',
   'settings.recovery': 'Nouveau code de secours',
   'settings.recovery.lead': 'Le code actuel cesse de marcher.',
+  'settings.recovery.make': 'Créer un nouveau code',
   'settings.passkeys': 'Touch ID / Face ID',
   'settings.passkeys.lead':
     'Une passkey déverrouille le coffre avec ton empreinte ou ton visage, sur les appareils qui gèrent le PRF des passkeys.',
@@ -532,7 +542,7 @@ const fr: Record<Key, string> = {
   'settings.language': 'Langue',
   'settings.about': 'À propos',
   'settings.about.lead': "otpx {version}. Le même cœur Rust que l'app du terminal. Open source.",
-  'settings.cli': "Installer l'app du terminal : brew install maxgfr/tap/otpx",
+  'settings.cli': "Installer l'app du terminal : `brew install maxgfr/tap/otpx`",
   'settings.origin':
     "Cette page partage son origine avec d'autres sites de maxgfr.github.io. Seul le coffre chiffré est gardé ; pour une origine isolée, lance `otpx web`.",
   'settings.forget': 'Oublier ce navigateur',
@@ -574,6 +584,16 @@ export function detectLang(preferred?: string | null): Lang {
 export function t(key: Key, vars: Record<string, string | number> = {}): string {
   const text = dictionaries[lang][key] ?? en[key];
   return text.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m));
+}
+
+/** Plural form `base.one` / `base.other` for `n` (French counts 0 as singular). */
+export function tn(
+  base: 'add.done' | 'add.scan.found' | 'receive.lead' | 'unlock.wrong.pin',
+  n: number,
+  vars: Record<string, string | number> = {},
+): string {
+  const rule = new Intl.PluralRules(lang).select(n) === 'one' ? 'one' : 'other';
+  return t(`${base}.${rule}` as Key, { ...vars, n });
 }
 
 /** "3 min", "2 h"… */

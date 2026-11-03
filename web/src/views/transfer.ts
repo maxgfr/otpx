@@ -1,6 +1,6 @@
 // Import from other apps, export to them, move to a phone.
 
-import { h, icon, mount, svgUrl } from '../dom';
+import { h, icon, mount, rich, svgUrl } from '../dom';
 import { t } from '../i18n';
 import { app } from '../state';
 import { button, bytesOf, download, field, input, notice, pageHead, select } from '../ui';
@@ -158,7 +158,7 @@ export function transfer(main: HTMLElement): void {
           picker,
         ),
         importStatus,
-        h('p', { class: 'hint' }, t('transfer.ms')),
+        h('p', { class: 'hint' }, rich(t('transfer.ms'))),
       ),
       h(
         'section',

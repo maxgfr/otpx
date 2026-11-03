@@ -72,6 +72,8 @@ export class App {
   /** The token of the `otpx web` process that served this page, if any. */
   localToken: string | null = null;
   syncing = false;
+  /** The new vault's recovery code is on screen and not confirmed yet. */
+  recoveryPending = false;
   lastError: string | null = null;
   private listeners = new Set<Listener>();
   private lockTimer: ReturnType<typeof setTimeout> | null = null;

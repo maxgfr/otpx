@@ -3,7 +3,7 @@
 import { groupCode, h, icon, mount, svgUrl } from '../dom';
 import { t } from '../i18n';
 import { app } from '../state';
-import { button, eyelet, field, input, notice, pageHead, select, setEyelet, toast } from '../ui';
+import { button, eyelet, field, input, linkRow, notice, pageHead, select, setEyelet, toast } from '../ui';
 import { type Account, accounts, codes, core, message } from '../wasm';
 import { copyCode } from './list';
 
@@ -49,7 +49,7 @@ export function account(main: HTMLElement, id: string): () => void {
     h(
       'section',
       { class: 'account' },
-      pageHead(a.label, home),
+      h('div', { class: 'account-head' }, pageHead(a.label, home)),
       tag,
       h(
         'div',
@@ -149,6 +149,7 @@ export function account(main: HTMLElement, id: string): () => void {
       return;
     }
     code.textContent = groupCode(c.code);
+    code.classList.toggle('code-8', c.code.length > 6);
     next.textContent = c.next ? t('list.next', { code: groupCode(c.next) }) : '';
     secs.textContent = String(c.remaining);
     setEyelet(eye, c.period - (now % c.period), c.period);
@@ -307,26 +308,9 @@ export function share(main: HTMLElement, id: string, base: string): void {
             Date.now() + Number(expires.value) * 1000,
             pass.value || undefined,
           );
-          const box = h(
-            'textarea',
-            { class: 'link-out', readonly: true, rows: '4', spellcheck: 'false' },
-            link,
-          );
           mount(
             out,
-            box,
-            h(
-              'div',
-              { class: 'actions' },
-              button(
-                t('share.copy'),
-                async () => {
-                  await navigator.clipboard.writeText(link).catch(() => box.select());
-                  toast(t('copied'));
-                },
-                { kind: 'primary', icon: 'copy' },
-              ),
-            ),
+            linkRow(link),
             h('img', {
               class: 'qr',
               alt: t('account.qr'),
@@ -334,7 +318,6 @@ export function share(main: HTMLElement, id: string, base: string): void {
               width: '240',
               height: '240',
             }),
-            notice(t('share.warning'), 'warn'),
           );
         } catch (err) {
           mount(out, notice(message(err), 'error'));
@@ -343,6 +326,7 @@ export function share(main: HTMLElement, id: string, base: string): void {
     },
     field(t('share.expires'), expires),
     field(t('share.passphrase'), pass, t('share.passphrase.hint')),
+    notice(t('share.warning'), 'warn'),
     h(
       'div',
       { class: 'actions' },

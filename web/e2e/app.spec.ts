@@ -45,7 +45,7 @@ test('create, add, read codes, edit, share, lock and unlock', async ({ page, con
   await page.getByRole('tab', { name: 'Paste' }).click();
   await page.getByLabel('Links').fill([GH, AWS, BANK].join('\n'));
   await page.getByRole('button', { name: 'Add', exact: true }).click();
-  await expect(page.getByText('Added 3 account(s).')).toBeVisible();
+  await expect(page.getByText('Added 3 accounts.')).toBeVisible();
   await shot(page, '05-added');
 
   await page.goto('/?test-fast-kdf#/');
@@ -90,7 +90,7 @@ test('create, add, read codes, edit, share, lock and unlock', async ({ page, con
 
   await page.getByRole('link', { name: 'Share' }).click();
   await page.getByRole('button', { name: 'Make the link' }).click();
-  const link = await page.locator('textarea.link-out').inputValue();
+  const link = await page.locator('input.link-out').inputValue();
   expect(link).toMatch(/#s=1\./);
   await shot(page, '09-share');
 
@@ -131,7 +131,7 @@ test('create, add, read codes, edit, share, lock and unlock', async ({ page, con
     await expect(p2.getByRole('heading', { name: 'Shared with you' })).toBeVisible();
     await shot(p2, '15-receive');
     await p2.getByRole('button', { name: 'Add to my vault' }).click();
-    await expect(p2.getByText('Added 1 account(s).')).toBeVisible();
+    await expect(p2.getByText('Added 1 account.')).toBeVisible();
     await other.close();
   }
   expect(errors).toEqual([]);

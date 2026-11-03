@@ -41,7 +41,7 @@ function syncState(): HTMLElement | null {
   if (!remotes.length)
     return h(
       'a',
-      { class: 'sync-state is-none', href: '#/sync' },
+      { class: 'sync-state is-none', href: '#/sync', title: t('sync.none') },
       icon('alert'),
       h('span', {}, t('sync.never')),
     );
@@ -56,13 +56,13 @@ function syncState(): HTMLElement | null {
       'aria-label': `${t('sync.now')} (${text})`,
       onclick: (() => void runSync()) as EventListener,
     },
-    icon('sync'),
+    icon(app.lastError ? 'alert' : 'sync'),
     h('span', {}, text),
   );
 }
 
 function renderBar(): void {
-  if (!app.vault) {
+  if (!app.vault || app.recoveryPending) {
     mount(header, h('a', { class: 'brand', href: '#/' }, 'otpx'));
     return;
   }
@@ -135,8 +135,10 @@ async function route(): Promise<void> {
   if (!app.file) {
     if (first === 'create')
       create(main, async (v, rc) => {
+        app.recoveryPending = true;
         await app.opened(v);
         recovery(main, rc, () => {
+          app.recoveryPending = false;
           location.hash = pendingLink.value ? '#/receive' : '#/';
         });
       });

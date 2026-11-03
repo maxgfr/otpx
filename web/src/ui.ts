@@ -1,6 +1,7 @@
 // Shared pieces of the interface: toast, fields, buttons, the tag eyelet, notices.
 
-import { h, type IconName, icon } from './dom';
+import { h, type IconName, icon, rich } from './dom';
+import { t } from './i18n';
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -66,7 +67,7 @@ export function notice(text: string, kind: 'proof' | 'warn' | 'error' = 'proof')
     'p',
     { class: `notice notice-${kind}`, role: kind === 'error' ? 'alert' : null },
     kind === 'proof' ? null : icon('alert'),
-    h('span', {}, text),
+    h('span', {}, rich(text)),
   );
 }
 
@@ -91,6 +92,35 @@ export function pageHead(title: string, back?: { href: string; label: string }):
     { class: 'page-head' },
     back ? h('a', { class: 'back', href: back.href }, icon('back'), h('span', {}, back.label)) : null,
     h('h1', { tabindex: '-1' }, title),
+  );
+}
+
+/** A read-only one-line link with its Copy button. */
+export function linkRow(link: string): HTMLDivElement {
+  const box = h('input', {
+    class: 'link-out',
+    readonly: true,
+    value: link,
+    spellcheck: 'false',
+    'aria-label': t('link.label'),
+  });
+  box.addEventListener('focus', () => box.select());
+  return h(
+    'div',
+    { class: 'link-row' },
+    box,
+    button(
+      t('share.copy'),
+      async () => {
+        const ok = await navigator.clipboard.writeText(link).then(
+          () => true,
+          () => false,
+        );
+        if (!ok) box.select();
+        toast(ok ? t('copied') : t('copy.failed'));
+      },
+      { kind: 'primary', icon: 'copy' },
+    ),
   );
 }
 
