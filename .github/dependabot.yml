@@ -6,6 +6,10 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    ignore:
+      # Stays on the major age uses (age 0.12 -> x25519-dalek 2), so one copy is built.
+      - dependency-name: x25519-dalek
+        update-types: [version-update:semver-major]
     groups:
       # The RustCrypto crates share the digest traits and must move together, majors included.
       rustcrypto:
@@ -31,6 +35,11 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    ignore:
+      # 10.x only renders with conventional-changelog-writer 9, and
+      # @semantic-release/release-notes-generator 14.1.1 still ships writer 8.
+      - dependency-name: conventional-changelog-conventionalcommits
+        update-types: [version-update:semver-major]
   - package-ecosystem: bun
     directory: /web
     schedule:
