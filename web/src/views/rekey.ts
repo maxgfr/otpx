@@ -35,7 +35,9 @@ export function rekey(main: HTMLElement): void {
         setTimeout(async () => {
           try {
             const newer = core.Vault.unlockPassword(pending.remote, pw.value);
-            const changes = app.vault ? (JSON.parse(app.vault.keyringChanges(newer, Date.now())) as string[]) : [];
+            const changes = app.vault
+              ? (JSON.parse(app.vault.keyringChanges(newer, Date.now())) as string[])
+              : [];
             if (changes.length && !reviewed) {
               // New ways to unlock must be the user's own: show them, ask once more.
               reviewed = true;
