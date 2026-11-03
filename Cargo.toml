@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/otpx-core"]
+members = ["crates/otpx-core", "crates/otpx"]
 
 [workspace.package]
 version = "0.1.0"

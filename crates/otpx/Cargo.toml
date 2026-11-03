@@ -1,0 +1,59 @@
+[package]
+name = "otpx"
+description = "Your 2FA codes in the terminal: an encrypted, synced OTP vault (CLI and TUI)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+
+# Touch ID calls Objective-C (src/touchid.rs is the only module allowed `unsafe`).
+[lints.rust]
+unsafe_code = "deny"
+
+[[bin]]
+name = "otpx"
+path = "src/main.rs"
+
+[features]
+default = []
+# Embeds web/dist (built by scripts/build-web.sh) for `otpx web`.
+embed-web = []
+
+[dependencies]
+otpx-core = { workspace = true, features = ["sqlite"] }
+anyhow = "1"
+clap = { version = "4.6", features = ["derive", "env", "wrap_help"] }
+clap_complete = "4.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zeroize = "1.9"
+rpassword = "7.5"
+arboard = { version = "3.7", default-features = false }
+ureq = { version = "3.5", default-features = false, features = ["rustls", "json"] }
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
+crossterm = "0.29"
+rust-embed = { version = "8.13", features = ["include-exclude"] }
+tiny_http = "0.12"
+open = "5.4"
+keyring-core = "1"
+data-encoding = "2.11"
+sha2 = "0.11"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1", features = ["keychain"] }
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSError"] }
+objc2-local-authentication = { version = "0.3", default-features = false, features = ["std", "LAContext", "LAError", "block2"] }
+block2 = "0.6"
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+dbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust", "vendored"] }
+
+[dev-dependencies]
+otpx-core = { workspace = true }
+assert_cmd = "2.2"
+predicates = "3.1"
+tempfile = "3.27"
