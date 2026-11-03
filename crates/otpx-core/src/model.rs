@@ -433,6 +433,12 @@ impl VaultData {
             .iter_mut()
             .find(|e| e.id == entry.id)
             .ok_or_else(|| Error::Entry(format!("no entry with id {}", entry.id)))?;
+        if entry.kind == Kind::Hotp && slot.kind == Kind::Hotp && entry.counter < slot.counter {
+            return Err(Error::Entry(format!(
+                "an HOTP counter only moves forward (it is at {}): every device keeps the highest one",
+                slot.counter
+            )));
+        }
         entry.created = slot.created;
         entry.updated = stamp;
         *slot = entry;
@@ -583,6 +589,22 @@ mod tests {
         let id = v.add(e, 1, "a").unwrap();
         assert_eq!(v.entries[0].code_at(0).code, "755224");
         assert_eq!(v.advance_counter(&id, 2, "a").unwrap().code, "287082");
+    }
+
+    #[test]
+    fn hotp_counter_cannot_go_back() {
+        let mut v = VaultData::default();
+        let mut e = entry("Bank", "me");
+        e.kind = Kind::Hotp;
+        e.counter = 9;
+        let id = v.add(e, 1, "a").unwrap();
+        let mut lower = v.entries[0].clone();
+        lower.counter = 3;
+        assert!(v.update(lower, 2, "a").is_err());
+        let mut higher = v.entries[0].clone();
+        higher.counter = 12;
+        v.update(higher, 3, "a").unwrap();
+        assert_eq!(v.entries.iter().find(|e| e.id == id).unwrap().counter, 12);
     }
 
     #[test]

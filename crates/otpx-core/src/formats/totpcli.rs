@@ -23,7 +23,9 @@ pub(crate) fn age_decrypt_passphrase(bytes: &[u8], password: &str) -> Result<Zer
             "age files for a public key (use `otpx receive`)".into(),
         ));
     }
-    let id = age::scrypt::Identity::new(age::secrecy::SecretString::from(password.to_owned()));
+    let mut id = age::scrypt::Identity::new(age::secrecy::SecretString::from(password.to_owned()));
+    // totp-cli writes 15; 2^18 still opens in about a second and bounds memory to 256 MiB.
+    id.set_max_work_factor(18);
     let mut r = dec
         .decrypt(std::iter::once(&id as &dyn age::Identity))
         .map_err(|_| Error::Decrypt)?;

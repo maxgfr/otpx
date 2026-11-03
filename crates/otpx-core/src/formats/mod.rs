@@ -123,7 +123,13 @@ impl Imported {
 
     /// Batch indexes of a Google transfer that were not imported.
     pub fn missing_batches(&self) -> Vec<i32> {
-        let Some(size) = self.batches.iter().map(|b| b.1).max() else {
+        let Some(size) = self
+            .batches
+            .iter()
+            .map(|b| b.1)
+            .filter(|s| (1..=100).contains(s))
+            .max()
+        else {
             return Vec::new();
         };
         (0..size)

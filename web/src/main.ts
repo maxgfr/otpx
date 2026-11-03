@@ -8,6 +8,7 @@ import { account, edit, share } from './views/account';
 import { add } from './views/add';
 import { list, search } from './views/list';
 import { pendingLink, receive } from './views/receive';
+import { rekey } from './views/rekey';
 import { settings } from './views/settings';
 import { create, fetchGithub, openFile, openLink, recovery, unlock, welcome } from './views/start';
 import { runSync, syncView } from './views/sync';
@@ -158,6 +159,11 @@ async function route(): Promise<void> {
     });
     return;
   }
+  if (app.rekey) {
+    rekey(main);
+    focusHeading();
+    return;
+  }
   if (first === 'a' && second) {
     if (third === 'edit') edit(main, second);
     else if (third === 'share') share(main, second, linkBase());
@@ -199,7 +205,9 @@ async function readFragment(): Promise<void> {
     history.replaceState(null, '', `${location.pathname}#/receive`);
   }
   const local = /(?:^|&)local=([\w-]+)/.exec(frag);
-  if (local?.[1]) {
+  // Only `otpx web` (served from this machine) has a local vault API.
+  const onLocalhost = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+  if (local?.[1] && onLocalhost) {
     history.replaceState(null, '', `${location.pathname}#/`);
     await app.attachLocal(local[1]);
   }
@@ -210,6 +218,10 @@ async function boot(): Promise<void> {
   setLang(detectLang(app.prefs.lang));
   await readFragment();
   app.on(() => {
+    if (app.vault && app.rekey && location.hash !== '#/rekey') {
+      location.hash = '#/rekey';
+      return;
+    }
     if (
       !app.vault &&
       !['', '#/', '#/receive', '#/create', '#/fetch', '#/open', '#/link'].includes(location.hash)
@@ -225,7 +237,9 @@ async function boot(): Promise<void> {
     window.addEventListener(ev, () => app.touch(), { passive: true });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && app.prefs.hideLock && app.vault) app.lock('auto');
+    if (!document.hidden) app.checkIdle();
   });
+  window.addEventListener('focus', () => app.checkIdle());
   document.addEventListener('keydown', (e) => {
     const target = e.target as HTMLElement | null;
     const typing = target?.closest('input, textarea, select');

@@ -32,7 +32,7 @@ fn golden_vault_in_wasm() {
         assert_eq!(got["code"], want["code"]);
     }
     // A vault made in wasm opens again after sealing.
-    let mut fresh = Vault::create("pw", 1.0, true)
+    let mut fresh = Vault::create("pw", 1.0, "test")
         .map_err(|_| "create")
         .unwrap();
     assert!(fresh.take_recovery_code().is_some());

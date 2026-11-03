@@ -25,13 +25,13 @@ test('the golden vault opens in the browser build with the same codes', () => {
 });
 
 test('formats, QR and links from the same core', () => {
-  const v = core.Vault.create('pw', Date.now(), true);
+  const v = core.Vault.create('pw', Date.now(), 'test');
   const r = JSON.parse(v.addText('otpauth://totp/A:a?secret=JBSWY3DPEHPK3PXP&issuer=A', Date.now(), 'd')) as {
     added: number;
   };
   expect(r.added).toBe(1);
   const aegis = v.export('aegis', '', 'pw2', Date.now());
-  const other = core.Vault.create('x', Date.now(), true);
+  const other = core.Vault.create('x', Date.now(), 'test');
   expect(() =>
     other.importBytes(new TextEncoder().encode(aegis), 'auto', undefined, Date.now(), 'd'),
   ).toThrow(/needs-password/);

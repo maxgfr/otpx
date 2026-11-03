@@ -37,6 +37,7 @@ const en = {
   'unlock.wrong.pin.one': 'Wrong PIN. {n} attempt left.',
   'unlock.wrong.pin.other': 'Wrong PIN. {n} attempts left.',
   'unlock.pin.erased': 'Too many wrong PINs: the PIN is erased. Use the master password.',
+  'unlock.pin.removed': "This browser's PIN was removed (from another device?). Use the master password.",
   'unlock.wrong.recovery': 'This recovery code does not open the vault.',
   'unlock.working': 'Unlocking…',
   'unlock.forget': 'Forget this browser',
@@ -223,9 +224,19 @@ const en = {
   'receive.expired': 'This link expired.',
   'receive.bad': 'This link does not open: wrong passphrase, or it was cut.',
   'receive.device': 'Device setup',
-  'receive.device.lead': 'Remotes from another device: {list}.',
+  'receive.device.lead': 'This link sets up sync with these remotes{list}:',
+  'receive.device.check':
+    'Use it only if you made this link on your own device: it decides where your vault is copied.',
+  'receive.device.skipped': '{list}: folder remotes stay on the other machine.',
+  'receive.device.exists':
+    'A remote named {name} already exists here with another target. Remove it in Sync first.',
+  'receive.device.other': "That remote holds another vault than this browser's. Nothing was changed.",
   'receive.device.apply': 'Set up and fetch the vault',
   'receive.create': 'Create a vault to keep them',
+  'rekey.title': 'Unlock again',
+  'rekey.lead':
+    'The vault on {name} was re-keyed on another device (master password, recovery code or quick unlock changed). Enter the current master password; the changes made here are kept.',
+  'rekey.password': 'Current master password',
   'settings.title': 'Settings',
   'settings.security': 'Security',
   'settings.autolock': 'Lock after',
@@ -248,6 +259,8 @@ const en = {
   'settings.passkeys.added': 'Passkey added.',
   'settings.pin': 'PIN for this browser',
   'settings.pin.lead': 'A short code that works only here. Five wrong PINs erase it.',
+  'settings.pin.shared':
+    'This page shares its origin with other sites: a script there could try PINs. A passkey, or `otpx web`, is safer.',
   'settings.pin.set': 'Set a PIN',
   'settings.pin.remove': 'Remove the PIN',
   'settings.pin.new': 'New PIN (4 to 12 digits)',
@@ -315,6 +328,8 @@ const fr: Record<Key, string> = {
   'unlock.wrong.pin.one': 'Mauvais code PIN. Encore {n} essai.',
   'unlock.wrong.pin.other': 'Mauvais code PIN. Encore {n} essais.',
   'unlock.pin.erased': 'Trop de codes PIN faux : le PIN est effacé. Utilise le mot de passe maître.',
+  'unlock.pin.removed':
+    'Le code PIN de ce navigateur a été retiré (depuis un autre appareil ?). Utilise le mot de passe maître.',
   'unlock.wrong.recovery': "Ce code de secours n'ouvre pas le coffre.",
   'unlock.working': 'Déverrouillage…',
   'unlock.forget': 'Oublier ce navigateur',
@@ -506,9 +521,20 @@ const fr: Record<Key, string> = {
   'receive.expired': 'Ce lien a expiré.',
   'receive.bad': "Ce lien ne s'ouvre pas : mauvaise phrase de passe, ou il a été coupé.",
   'receive.device': "Configuration d'appareil",
-  'receive.device.lead': "Remotes venant d'un autre appareil : {list}.",
+  'receive.device.lead': 'Ce lien règle la synchro avec ces remotes{list} :',
+  'receive.device.check':
+    "Ne l'utilise que si tu as créé ce lien sur ton propre appareil : il décide où ton coffre est copié.",
+  'receive.device.skipped': "{list} : les remotes de type dossier restent sur l'autre machine.",
+  'receive.device.exists':
+    "Un remote nommé {name} existe déjà ici avec une autre cible. Retire-le d'abord dans Synchro.",
+  'receive.device.other':
+    "Ce remote contient un autre coffre que celui de ce navigateur. Rien n'a été modifié.",
   'receive.device.apply': 'Configurer et récupérer le coffre',
   'receive.create': 'Créer un coffre pour les garder',
+  'rekey.title': 'Déverrouiller à nouveau',
+  'rekey.lead':
+    'Le coffre de {name} a changé de clé sur un autre appareil (mot de passe maître, code de secours ou déverrouillage rapide modifié). Entre le mot de passe maître actuel ; les changements faits ici sont gardés.',
+  'rekey.password': 'Mot de passe maître actuel',
   'settings.title': 'Réglages',
   'settings.security': 'Sécurité',
   'settings.autolock': 'Verrouiller après',
@@ -532,6 +558,8 @@ const fr: Record<Key, string> = {
   'settings.passkeys.added': 'Passkey ajoutée.',
   'settings.pin': 'Code PIN de ce navigateur',
   'settings.pin.lead': "Un code court qui ne marche qu'ici. Cinq codes faux l'effacent.",
+  'settings.pin.shared':
+    "Cette page partage son origine avec d'autres sites : un script là-bas pourrait essayer des codes PIN. Une passkey, ou `otpx web`, est plus sûre.",
   'settings.pin.set': 'Choisir un code PIN',
   'settings.pin.remove': 'Retirer le code PIN',
   'settings.pin.new': 'Nouveau code PIN (4 à 12 chiffres)',

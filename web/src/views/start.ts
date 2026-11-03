@@ -1,5 +1,6 @@
 // Before the vault is open: welcome, create, recovery code, unlock, fetch from GitHub, open a file or a link.
 
+import { copy } from '../clipboard';
 import { h, icon, mount } from '../dom';
 import { t, tn } from '../i18n';
 import * as passkey from '../passkey';
@@ -8,9 +9,6 @@ import { app } from '../state';
 import { githubRepo } from '../sync';
 import { button, field, input, notice, pageHead, toast } from '../ui';
 import { core, message, type Vault } from '../wasm';
-
-export const FAST_KDF =
-  typeof location !== 'undefined' && new URLSearchParams(location.search).has('test-fast-kdf');
 
 function choice(
   iconName: Parameters<typeof icon>[0],
@@ -83,7 +81,7 @@ export function create(main: HTMLElement, done: (v: Vault, recovery: string) => 
         submit.setAttribute('aria-busy', 'true');
         setTimeout(() => {
           try {
-            const v = core.Vault.create(pw.value, Date.now(), FAST_KDF);
+            const v = core.Vault.create(pw.value, Date.now(), app.device.id);
             const rc = v.takeRecoveryCode() ?? '';
             done(v, rc);
           } catch (err) {
@@ -131,7 +129,7 @@ export function recovery(main: HTMLElement, code: string, next: () => void): voi
         button(
           t('recovery.copy'),
           async () => {
-            await navigator.clipboard.writeText(code).catch(() => undefined);
+            await copy(code, 60);
             toast(t('copied'));
           },
           { icon: 'copy' },
@@ -148,9 +146,8 @@ type Mode = 'password' | 'pin' | 'recovery';
 export async function unlock(main: HTMLElement, opened: (v: Vault) => void): Promise<void> {
   const file = app.file;
   if (!file) return;
-  const id = core.vaultId(file);
   const keys = JSON.parse(core.passkeys(file)) as [string, string][];
-  const hasPin = await pin.isSet(app.store, id);
+  const hasPin = await pin.isSet(app.store, file);
   let mode: Mode = hasPin ? 'pin' : 'password';
   const render = () => {
     const secret = input({
@@ -190,10 +187,10 @@ export async function unlock(main: HTMLElement, opened: (v: Vault) => void): Pro
             try {
               if (mode === 'pin') {
                 const r = await pin.unlock(app.store, file, secret.value);
-                if (r === 'erased') {
+                if (r === 'erased' || r === 'removed') {
                   mode = 'password';
                   render();
-                  toast(t('unlock.pin.erased'), 'error');
+                  toast(r === 'erased' ? t('unlock.pin.erased') : t('unlock.pin.removed'), 'error');
                   return;
                 }
                 if ('left' in r) {

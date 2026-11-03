@@ -12,8 +12,9 @@ use std::collections::BTreeMap;
 use crate::model::Kind;
 use crate::model::{Entry, Identity, Tombstone, VaultData};
 
-/// Tombstones older than this are dropped (180 days, in ms).
-pub const TOMBSTONE_TTL_MS: u64 = 180 * 24 * 3600 * 1000;
+/// Tombstones older than this are dropped (3 years, in ms): a device offline longer than that
+/// can bring a deleted account back.
+pub const TOMBSTONE_TTL_MS: u64 = 3 * 365 * 24 * 3600 * 1000;
 
 /// Merges `a` and `b`. `now_ms` only decides which old tombstones are dropped.
 pub fn merge(a: &VaultData, b: &VaultData, now_ms: u64) -> VaultData {

@@ -15,14 +15,31 @@ pub fn find_uris(text: &str) -> impl Iterator<Item = &str> {
     })
 }
 
+/// Transfer links whose `+` became spaces on the way: the spaces are removed again (they
+/// never belong in a URI).
+fn repair(text: &str) -> String {
+    text.lines()
+        .map(|l| match l.find("otpauth-migration://") {
+            Some(i) => format!("{}{}", &l[..i], l[i..].trim_end().replace(' ', "+")),
+            None => l.to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Imports every URI of `text`.
 pub fn import(text: &str, mut out: Imported) -> Imported {
-    for u in find_uris(text) {
+    let text = repair(text);
+    for u in find_uris(&text) {
         if u.to_ascii_lowercase().starts_with("otpauth-migration://") {
             match super::google::decode(u) {
                 Ok(payload) => {
-                    out.batches
-                        .push((payload.batch_index, payload.batch_size.max(1)));
+                    // A transfer never has more than a few dozen codes; a huge size is hostile.
+                    if (1..=100).contains(&payload.batch_size)
+                        && (0..payload.batch_size).contains(&payload.batch_index)
+                    {
+                        out.batches.push((payload.batch_index, payload.batch_size));
+                    }
                     for p in payload.otp_parameters {
                         let what = if p.issuer.is_empty() {
                             p.name.clone()

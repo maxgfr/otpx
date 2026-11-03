@@ -102,7 +102,8 @@ pub fn init(a: InitArgs, ctx: &Ctx) -> anyhow::Result<ExitCode> {
         ctx.ui.warn(w);
     }
     let now = now_ms();
-    let created = Unlocked::create(&pw, kdf_params(), now).map_err(core_failure)?;
+    let device = ctx.config().device_id;
+    let created = Unlocked::create(&pw, kdf_params(), now, &device).map_err(core_failure)?;
     let mut vault = created.vault;
     vault
         .data
@@ -323,7 +324,7 @@ pub fn passwd(a: PasswdArgs, ctx: &Ctx) -> anyhow::Result<ExitCode> {
         ctx.ui.warn(w);
     }
     s.vault
-        .set_password(&pw, kdf_params(), now_ms())
+        .set_password(&pw, kdf_params(), now_ms(), &ctx.config().device_id)
         .map_err(core_failure)?;
     session::save(ctx, &mut s)?;
     ctx.ui.emit("password_changed", json!({}));
@@ -347,7 +348,10 @@ pub struct RecoveryArgs {
 pub fn recovery(a: RecoveryArgs, ctx: &Ctx) -> anyhow::Result<ExitCode> {
     if a.reset {
         let mut s = session::open(ctx)?;
-        let code = s.vault.reset_recovery(now_ms()).map_err(core_failure)?;
+        let code = s
+            .vault
+            .reset_recovery(now_ms(), &ctx.config().device_id)
+            .map_err(core_failure)?;
         session::save(ctx, &mut s)?;
         ctx.update_config(|c| c.recovery_confirmed = false)?;
         show_recovery(ctx, &code);
@@ -412,7 +416,8 @@ pub fn quick(a: QuickArgs, ctx: &Ctx) -> anyhow::Result<ExitCode> {
             ));
         }
         Some(QuickCmd::Enable { method, pin_stdin }) => {
-            let s = session::open(ctx)?;
+            session::require_keychain(ctx)?;
+            let mut s = session::open(ctx)?;
             match method.as_str() {
                 "touchid" | "touch-id" | "biometrics" => {
                     if !touchid::available() {
@@ -424,8 +429,7 @@ pub fn quick(a: QuickArgs, ctx: &Ctx) -> anyhow::Result<ExitCode> {
                     if !touchid::authenticate("turn on Touch ID for otpx")? {
                         return Err(fail(exit::AUTH, "Touch ID was not confirmed"));
                     }
-                    ctx.secrets().set(session::QUICK_DEK, s.vault.dek())?;
-                    ctx.update_config(|c| c.quick.touchid = true)?;
+                    session::enable_quick(ctx, &mut s, "touchid", None)?;
                     ctx.ui
                         .say("Touch ID on: `otpx unlock` now asks for your fingerprint first.");
                 }
@@ -434,7 +438,7 @@ pub fn quick(a: QuickArgs, ctx: &Ctx) -> anyhow::Result<ExitCode> {
                     if pin.chars().count() < 4 {
                         return Err(fail(exit::USAGE, "a PIN needs at least 4 characters"));
                     }
-                    session::enable_pin(ctx, &s.vault, &pin)?;
+                    session::enable_quick(ctx, &mut s, "pin", Some(&pin))?;
                     ctx.ui.say(&format!(
                         "PIN on for this device. It only works here (with a key kept in the {}), and {} wrong PINs erase it.",
                         ctx.secrets().backend(),
@@ -452,11 +456,10 @@ pub fn quick(a: QuickArgs, ctx: &Ctx) -> anyhow::Result<ExitCode> {
         }
         Some(QuickCmd::Disable { method }) => {
             if matches!(method.as_str(), "touchid" | "touch-id" | "all") {
-                ctx.secrets().delete(session::QUICK_DEK)?;
-                ctx.update_config(|c| c.quick.touchid = false)?;
+                session::disable_quick(ctx, "touchid")?;
             }
             if matches!(method.as_str(), "pin" | "all") {
-                session::disable_pin(ctx)?;
+                session::disable_quick(ctx, "pin")?;
             }
             ctx.ui.emit("quick_unlock", json!({ "disabled": method }));
             ctx.ui.say("Done.");
@@ -514,13 +517,13 @@ pub fn config(a: ConfigArgs, ctx: &Ctx) -> anyhow::Result<ExitCode> {
                 )
             })?;
             ctx.update_config(|c| c.unlock_mode = m)?;
-            if m == UnlockMode::AlwaysAsk {
-                session::forget(ctx)?;
-            }
+            // The cached key was made for the old mode (maybe without expiry): start over.
+            session::forget(ctx)?;
         }
         "unlock-ttl" => {
             let t = parse_duration(&value)?;
             ctx.update_config(|c| c.unlock_ttl_secs = t.max(10))?;
+            session::forget(ctx)?;
         }
         "auto-sync" => {
             let b = matches!(value.as_str(), "true" | "on" | "yes" | "1");

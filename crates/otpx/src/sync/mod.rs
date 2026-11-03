@@ -24,6 +24,9 @@ pub type Version = String;
 pub enum PushError {
     /// The remote changed since it was read.
     Conflict,
+    /// The write landed but replaced a version written meanwhile (gists have no conditional
+    /// write): that version's content, to merge and push again.
+    Overwrote(String),
     /// Anything else.
     Other(anyhow::Error),
 }
@@ -70,15 +73,24 @@ pub fn token(ctx: &Ctx, remote: &Remote) -> anyhow::Result<String> {
 
 /// The backend of a remote.
 pub fn backend(ctx: &Ctx, remote: &Remote) -> anyhow::Result<Box<dyn Backend>> {
-    Ok(match &remote.kind {
-        RemoteKind::Github { repo, path, branch } => {
-            Box::new(github::Repo::new(token(ctx, remote)?, repo, path, branch))
-        }
-        RemoteKind::Gist { id, file } => Box::new(github::Gist::new(token(ctx, remote)?, id, file)),
-        RemoteKind::Folder { path } => Box::new(folder::Folder::new(path)),
-    })
+    let token = if remote.needs_token() {
+        token(ctx, remote)?
+    } else {
+        String::new()
+    };
+    Ok(backend_with(remote, token))
 }
 
+/// The backend of a remote with a given token (a device link's, before it is stored).
+pub fn backend_with(remote: &Remote, token: String) -> Box<dyn Backend> {
+    match &remote.kind {
+        RemoteKind::Github { repo, path, branch } => {
+            Box::new(github::Repo::new(token, repo, path, branch))
+        }
+        RemoteKind::Gist { id, file } => Box::new(github::Gist::new(token, id, file)),
+        RemoteKind::Folder { path } => Box::new(folder::Folder::new(path)),
+    }
+}
 /// What one sync did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
@@ -104,40 +116,70 @@ impl Outcome {
     }
 }
 
+fn parse_remote(content: &str, s: &Session) -> anyhow::Result<VaultFile> {
+    let file = VaultFile::parse(content).map_err(|e| {
+        fail(
+            exit::CONFLICT,
+            format!("the remote file is not an otpx vault: {e}"),
+        )
+    })?;
+    if file.id != s.vault.id {
+        return Err(fail(
+            exit::CONFLICT,
+            "the remote holds another vault (use another path, or `otpx sync setup … --replace-local` on a new device)",
+        ));
+    }
+    Ok(file)
+}
+
+/// Merges a remote copy into `s`; returns whether it brought something and whether the remote
+/// needs the merged result.
+fn merge_remote(ctx: &Ctx, s: &mut Session, file: &VaultFile) -> anyhow::Result<(bool, bool)> {
+    let before = (s.vault.data.clone(), s.vault.keyring.clone());
+    if file.key_id == s.vault.key_id() {
+        let other = file.unlock_dek(s.vault.dek()).map_err(|_| {
+            fail(
+                exit::CONFLICT,
+                "the remote vault does not open with this vault's key: it was modified",
+            )
+        })?;
+        let change = s.vault.absorb(&other, now_ms()).map_err(core_failure)?;
+        crate::session::note_keyring(ctx, change);
+        let differs = s.vault.data != other.data || s.vault.keyring != other.keyring;
+        Ok((
+            before.0 != s.vault.data || before.1 != s.vault.keyring,
+            differs,
+        ))
+    } else if file.retired_by(&s.vault.keyring) {
+        // An old copy under a key this vault rotated away from (stale, or replayed): replace it.
+        Ok((false, true))
+    } else {
+        // Rotated on another device: unlock the new one, fold ours in.
+        crate::session::rekey(ctx, s, file)?;
+        crate::session::note_keyring(ctx, otpx_core::vault::KeyringChange::Adopted);
+        let other = file.unlock_dek(s.vault.dek()).map_err(core_failure)?;
+        Ok((
+            true,
+            s.vault.data != other.data || s.vault.keyring != other.keyring,
+        ))
+    }
+}
+
 /// Syncs `s` with one backend.
 pub fn sync_one(ctx: &Ctx, backend: &dyn Backend, s: &mut Session) -> anyhow::Result<Outcome> {
     let device = ctx.config().device_name;
+    let mut pulled = false;
     for attempt in 0..6 {
         if attempt > 0 {
             std::thread::sleep(Duration::from_millis(200 * attempt));
         }
         let remote = backend.fetch()?;
-        let before_data = s.vault.data.clone();
-        let before_slots = s.vault.slots.clone();
-        let mut pulled = false;
         let base = match &remote {
             Some((content, version)) => {
-                let file = VaultFile::parse(content).map_err(|e| {
-                    fail(
-                        exit::CONFLICT,
-                        format!("the remote file is not an otpx vault: {e}"),
-                    )
-                })?;
-                if file.id != s.vault.id {
-                    return Err(fail(
-                        exit::CONFLICT,
-                        "the remote holds another vault (use another path, or `otpx sync setup … --replace-local` on a new device)",
-                    ));
-                }
-                let other = file.unlock_dek(s.vault.dek()).map_err(|_| {
-                    fail(
-                        exit::CONFLICT,
-                        "the remote vault does not open with this vault's key (modified?)",
-                    )
-                })?;
-                s.vault.absorb(&other, now_ms()).map_err(core_failure)?;
-                pulled = s.vault.data != before_data || s.vault.slots != before_slots;
-                if s.vault.data == other.data && s.vault.slots == other.slots {
+                let file = parse_remote(content, s)?;
+                let (brought, differs) = merge_remote(ctx, s, &file)?;
+                pulled |= brought;
+                if !differs {
                     return Ok(if pulled {
                         Outcome::Pulled
                     } else {
@@ -159,6 +201,11 @@ pub fn sync_one(ctx: &Ctx, backend: &dyn Backend, s: &mut Session) -> anyhow::Re
                 });
             }
             Err(PushError::Conflict) => continue,
+            Err(PushError::Overwrote(lost)) => {
+                // Merge the version our write replaced, then write again.
+                let file = parse_remote(&lost, s)?;
+                pulled |= merge_remote(ctx, s, &file)?.0;
+            }
             Err(PushError::Other(e)) => return Err(e),
         }
     }

@@ -5,7 +5,7 @@
 use otpx_core::crypto::Argon2Params;
 use otpx_core::formats::{self, ExportFormat, Format};
 use otpx_core::model::{Entry, Kind, Settings, sort_entries};
-use otpx_core::vault::{LocalWrap, Unlocked, VaultFile};
+use otpx_core::vault::{KeyringChange, Unlocked, VaultFile};
 use otpx_core::{share, uri};
 use serde_json::{Value, json};
 use wasm_bindgen::prelude::*;
@@ -79,8 +79,8 @@ fn entry_json(e: &Entry) -> Value {
     })
 }
 
-/// Opens a share link: `{entries: [...], device, expires}` (accounts without secrets shown,
-/// the share kept for [`Vault::addShared`]).
+/// Opens a share link: `{entries: [...], device, expires, share}` (the share kept for
+/// [`Vault::add_shared`]).
 #[wasm_bindgen(js_name = openLink)]
 pub fn open_link(link: &str, passphrase: Option<String>, now: f64) -> Result<String, JsError> {
     let s = share::open_link(link, passphrase.as_deref(), ms(now)).map_err(err)?;
@@ -105,12 +105,10 @@ pub fn export_formats() -> String {
     .to_string()
 }
 
-fn params(fast: bool) -> Argon2Params {
-    if fast {
-        Argon2Params::TEST
-    } else {
-        Argon2Params::PASSWORD
-    }
+/// Whether the vault file still has the device slot `name`.
+#[wasm_bindgen(js_name = hasDevice)]
+pub fn has_device(file: &str, name: &str) -> bool {
+    VaultFile::parse(file).is_ok_and(|f| f.device_slot(name).is_some())
 }
 
 /// An open vault.
@@ -120,11 +118,18 @@ pub struct Vault {
     recovery: Option<String>,
 }
 
+fn opened(inner: Unlocked) -> Vault {
+    Vault {
+        inner,
+        recovery: None,
+    }
+}
+
 #[wasm_bindgen]
 impl Vault {
-    /// A new vault. `fast` lowers the KDF cost (tests only).
-    pub fn create(password: &str, now: f64, fast: bool) -> Result<Vault, JsError> {
-        let c = Unlocked::create(password, params(fast), ms(now)).map_err(err)?;
+    /// A new vault.
+    pub fn create(password: &str, now: f64, device: &str) -> Result<Vault, JsError> {
+        let c = Unlocked::create(password, Argon2Params::PASSWORD, ms(now), device).map_err(err)?;
         let mut inner = c.vault;
         inner.data.identities.push(share::new_identity(ms(now)));
         Ok(Vault {
@@ -136,43 +141,52 @@ impl Vault {
     /// Opens a vault file with the master password.
     #[wasm_bindgen(js_name = unlockPassword)]
     pub fn unlock_password(file: &str, password: &str) -> Result<Vault, JsError> {
-        let f = VaultFile::parse(file).map_err(err)?;
-        Ok(Vault {
-            inner: f.unlock_password(password).map_err(err)?,
-            recovery: None,
-        })
+        Ok(opened(
+            VaultFile::parse(file)
+                .map_err(err)?
+                .unlock_password(password)
+                .map_err(err)?,
+        ))
     }
 
     /// Opens a vault file with the recovery code.
     #[wasm_bindgen(js_name = unlockRecovery)]
     pub fn unlock_recovery(file: &str, code: &str) -> Result<Vault, JsError> {
-        let f = VaultFile::parse(file).map_err(err)?;
-        Ok(Vault {
-            inner: f.unlock_recovery(code).map_err(err)?,
-            recovery: None,
-        })
+        Ok(opened(
+            VaultFile::parse(file)
+                .map_err(err)?
+                .unlock_recovery(code)
+                .map_err(err)?,
+        ))
     }
 
     /// Opens a vault file with a passkey's PRF output.
     #[wasm_bindgen(js_name = unlockPasskey)]
     pub fn unlock_passkey(file: &str, credential: &str, prf: &[u8]) -> Result<Vault, JsError> {
-        let f = VaultFile::parse(file).map_err(err)?;
-        Ok(Vault {
-            inner: f.unlock_passkey(credential, prf).map_err(err)?,
-            recovery: None,
-        })
+        Ok(opened(
+            VaultFile::parse(file)
+                .map_err(err)?
+                .unlock_passkey(credential, prf)
+                .map_err(err)?,
+        ))
     }
 
-    /// Opens a vault file with a local wrap (PIN) and its secret.
-    #[wasm_bindgen(js_name = unlockLocal)]
-    pub fn unlock_local(file: &str, wrap: &str, secret: &[u8]) -> Result<Vault, JsError> {
+    /// Opens a vault file with a device key (and its PIN). Throws `no-slot` when this device's
+    /// quick unlock was removed; any other error is a wrong PIN or key.
+    #[wasm_bindgen(js_name = unlockDevice)]
+    pub fn unlock_device(
+        file: &str,
+        name: &str,
+        key: &[u8],
+        pin: Option<String>,
+    ) -> Result<Vault, JsError> {
         let f = VaultFile::parse(file).map_err(err)?;
-        let w: LocalWrap = serde_json::from_str(wrap).map_err(err)?;
-        let dek = w.open(secret).map_err(err)?;
-        Ok(Vault {
-            inner: f.unlock_dek(&dek).map_err(err)?,
-            recovery: None,
-        })
+        if f.device_slot(name).is_none() {
+            return Err(err("no-slot"));
+        }
+        Ok(opened(
+            f.unlock_device(name, key, pin.as_deref()).map_err(err)?,
+        ))
     }
 
     /// The recovery code of a vault just created (once).
@@ -184,6 +198,12 @@ impl Vault {
     /// Vault id.
     pub fn id(&self) -> String {
         self.inner.id.clone()
+    }
+
+    /// Id of the current vault key (changes when the key rotates).
+    #[wasm_bindgen(js_name = keyId)]
+    pub fn key_id(&self) -> String {
+        self.inner.key_id().to_owned()
     }
 
     /// The encrypted vault file.
@@ -233,7 +253,7 @@ impl Vault {
         Ok(code)
     }
 
-    /// Adds every account found in `text` (URIs, transfer links): `{added, duplicates, skipped, missing}`.
+    /// Adds every account found in `text` (URIs, transfer links).
     #[wasm_bindgen(js_name = addText)]
     pub fn add_text(&mut self, text: &str, now: f64, device: &str) -> Result<String, JsError> {
         let got = formats::import(text.as_bytes(), Format::Uris, None).map_err(err)?;
@@ -362,10 +382,10 @@ impl Vault {
         password: Option<String>,
         now: f64,
     ) -> Result<String, JsError> {
-        let picked = self.pick(ids)?;
         if format == "otpx" {
             return self.seal();
         }
+        let picked = self.pick(ids)?;
         let f =
             ExportFormat::parse(format).ok_or_else(|| err(format!("unknown format {format}")))?;
         if f == ExportFormat::Paper {
@@ -378,11 +398,7 @@ impl Vault {
     #[wasm_bindgen(js_name = googleTransfer)]
     pub fn google_transfer(&self, ids: &str) -> Result<String, JsError> {
         let picked = self.pick(ids)?;
-        Ok(json!({
-            "codes": formats::google::export(&picked).map_err(err)?,
-            "left_out": formats::google::not_exportable(&picked),
-        })
-        .to_string())
+        Ok(json!({ "codes": formats::google::export(&picked).map_err(err)?, "left_out": formats::google::not_exportable(&picked) }).to_string())
     }
 
     fn pick(&self, ids: &str) -> Result<Vec<Entry>, JsError> {
@@ -403,33 +419,53 @@ impl Vault {
         Ok(v)
     }
 
-    /// Merges another copy of this vault (from a remote): `{changed, differs}`, `changed`
-    /// when it brought something, `differs` when the remote needs the merged result.
+    /// Merges another copy of this vault (from a remote): `{changed, differs, keyring}`.
+    /// `changed` when it brought something, `differs` when the remote needs the merged result,
+    /// `keyring` when the password, recovery code or devices changed elsewhere. Throws
+    /// `other-vault`, or `key-changed` when the vault was re-keyed elsewhere: unlock the remote
+    /// file with the current password, then `absorbOwn` this vault into it.
     pub fn absorb(&mut self, file: &str, now: f64) -> Result<String, JsError> {
         let f = VaultFile::parse(file).map_err(err)?;
         if f.id != self.inner.id {
             return Err(err("other-vault: the remote holds another vault"));
         }
+        if f.key_id != self.inner.key_id() {
+            if f.retired_by(&self.inner.keyring) {
+                return Ok(
+                    json!({ "changed": false, "differs": true, "keyring": false }).to_string(),
+                );
+            }
+            return Err(err("key-changed"));
+        }
         let other = f.unlock_dek(self.inner.dek()).map_err(err)?;
-        let before = (self.inner.data.clone(), self.inner.slots.clone());
-        self.inner.absorb(&other, ms(now)).map_err(err)?;
-        let changed = before.0 != self.inner.data || before.1 != self.inner.slots;
-        let differs = self.inner.data != other.data || self.inner.slots != other.slots;
-        Ok(json!({ "changed": changed, "differs": differs }).to_string())
+        let before = (self.inner.data.clone(), self.inner.keyring.clone());
+        let change = self.inner.absorb(&other, ms(now)).map_err(err)?;
+        let changed = before.0 != self.inner.data || before.1 != self.inner.keyring;
+        let differs = self.inner.data != other.data || self.inner.keyring != other.keyring;
+        Ok(json!({ "changed": changed, "differs": differs, "keyring": change == KeyringChange::Adopted }).to_string())
     }
 
-    /// Changes the master password.
-    #[wasm_bindgen(js_name = setPassword)]
-    pub fn set_password(&mut self, password: &str, now: f64, fast: bool) -> Result<(), JsError> {
+    /// Folds this device's own older copy (opened before a re-key) into this vault.
+    #[wasm_bindgen(js_name = absorbOwn)]
+    pub fn absorb_own(&mut self, older: &Vault, now: f64) -> Result<(), JsError> {
         self.inner
-            .set_password(password, params(fast), ms(now))
+            .absorb_own(&older.inner, ms(now))
+            .map(|_| ())
             .map_err(err)
     }
 
-    /// Makes a new recovery code (returned).
+    /// Changes the master password (the key rotates).
+    #[wasm_bindgen(js_name = setPassword)]
+    pub fn set_password(&mut self, password: &str, now: f64, device: &str) -> Result<(), JsError> {
+        self.inner
+            .set_password(password, Argon2Params::PASSWORD, ms(now), device)
+            .map_err(err)
+    }
+
+    /// Makes a new recovery code (returned; the key rotates).
     #[wasm_bindgen(js_name = resetRecovery)]
-    pub fn reset_recovery(&mut self, now: f64) -> Result<String, JsError> {
-        self.inner.reset_recovery(ms(now)).map_err(err)
+    pub fn reset_recovery(&mut self, now: f64, device: &str) -> Result<String, JsError> {
+        self.inner.reset_recovery(ms(now), device).map_err(err)
     }
 
     /// Adds a passkey slot.
@@ -441,39 +477,52 @@ impl Vault {
         prf: &[u8],
         label: &str,
         now: f64,
+        device: &str,
     ) -> Result<String, JsError> {
         self.inner
-            .add_passkey(credential, prf_salt, prf, label, ms(now))
+            .add_passkey(credential, prf_salt, prf, label, ms(now), device)
             .map_err(err)
     }
 
-    /// Removes a slot (not the last password).
+    /// Removes a slot (not the last password; the key rotates).
     #[wasm_bindgen(js_name = removeSlot)]
-    pub fn remove_slot(&mut self, id: &str) -> Result<(), JsError> {
-        self.inner.remove_slot(id).map_err(err)
+    pub fn remove_slot(&mut self, id: &str, now: f64, device: &str) -> Result<(), JsError> {
+        self.inner.remove_slot(id, ms(now), device).map_err(err)
     }
 
-    /// Slots: `[{id, type, label, created}]`.
+    /// Adds (or replaces) the quick-unlock slot `name`; returns the device key to keep.
+    #[wasm_bindgen(js_name = addDevice)]
+    pub fn add_device(
+        &mut self,
+        name: &str,
+        label: &str,
+        pin: Option<String>,
+        now: f64,
+        device: &str,
+    ) -> Result<Vec<u8>, JsError> {
+        Ok(self
+            .inner
+            .add_device(name, label, pin.as_deref(), ms(now), device)
+            .map_err(err)?
+            .to_vec())
+    }
+
+    /// Removes the quick-unlock slot `name` (the key rotates). Returns whether it existed.
+    #[wasm_bindgen(js_name = removeDevice)]
+    pub fn remove_device(&mut self, name: &str, now: f64, device: &str) -> Result<bool, JsError> {
+        self.inner.remove_device(name, ms(now), device).map_err(err)
+    }
+
+    /// Slots: `[{id, type, label, created, credential, device}]`.
     pub fn slots(&self) -> String {
         json!(self
             .inner
+            .keyring
             .slots
             .iter()
-            .map(|s| json!({ "id": s.id, "type": s.kind, "label": s.label, "created": s.created, "credential": s.credential }))
+            .map(|s| json!({ "id": s.id, "type": s.kind, "label": s.label, "created": s.created, "credential": s.credential, "device": s.device }))
             .collect::<Vec<_>>())
         .to_string()
-    }
-
-    /// A local wrap of the DEK for a PIN (`secret` = PIN bytes + device secret).
-    #[wasm_bindgen(js_name = localWrap)]
-    pub fn local_wrap(&self, secret: &[u8], fast: bool) -> Result<String, JsError> {
-        let p = if fast {
-            Argon2Params::TEST
-        } else {
-            Argon2Params::KEY
-        };
-        serde_json::to_string(&LocalWrap::new(&self.inner, secret, Some(p)).map_err(err)?)
-            .map_err(err)
     }
 
     /// Encrypts device-local data (sync settings, tokens).
@@ -519,6 +568,9 @@ impl Vault {
         expires: f64,
         passphrase: &str,
     ) -> Result<String, JsError> {
+        if passphrase.chars().count() < 6 {
+            return Err(err("use a passphrase of 6 characters or more"));
+        }
         let d: Value = serde_json::from_str(device).map_err(err)?;
         let s = share::Share {
             v: 1,

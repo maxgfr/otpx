@@ -1,7 +1,6 @@
 //! Opening the vault: cached key, Touch ID, PIN or password, and saving changes.
 
-use otpx_core::crypto::Argon2Params;
-use otpx_core::vault::{LocalWrap, Unlocked, VaultFile};
+use otpx_core::vault::{KeyringChange, Unlocked, VaultFile};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
@@ -10,10 +9,12 @@ use crate::{Ctx, core_failure, exit, fail, now_ms, touchid, ui};
 
 /// Secret names.
 pub const SESSION: &str = "session";
-/// The vault key kept for Touch ID.
-pub const QUICK_DEK: &str = "quick-dek";
-/// The device half of the PIN secret.
-pub const PIN_DEVICE: &str = "pin-device";
+/// The device key of the Touch ID slot.
+pub const TOUCHID_KEY: &str = "touchid-key";
+/// The device key of the PIN slot.
+pub const PIN_KEY: &str = "pin-key";
+/// Wrong PINs in a row (kept next to the key, counted before each try).
+pub const PIN_FAILS: &str = "pin-failures";
 
 /// An open vault.
 pub struct Session {
@@ -29,6 +30,23 @@ struct Cached {
     dek: String,
     /// 0: until `otpx lock`.
     expires: u64,
+}
+
+/// Name of this device's quick-unlock slot for `method` (`touchid`, `pin`).
+pub fn device_slot(ctx: &Ctx, method: &str) -> String {
+    format!("{}:{method}", ctx.config().device_id)
+}
+
+/// Quick unlock needs the OS keychain: a device key in a file next to the vault would let a
+/// copy of the disk try every PIN offline.
+pub fn require_keychain(ctx: &Ctx) -> anyhow::Result<()> {
+    if ctx.secrets().backend() == "file" {
+        return Err(fail(
+            exit::USAGE,
+            "quick unlock needs the OS keychain (macOS Keychain or Secret Service); it is off here (OTPX_KEYCHAIN=0 or none available)",
+        ));
+    }
+    Ok(())
 }
 
 /// The cached key, if still valid: `(dek, expires)`.
@@ -56,6 +74,16 @@ pub fn cached(ctx: &Ctx, vault_id: &str) -> anyhow::Result<Option<(Zeroizing<[u8
     Ok(Some((Zeroizing::new(arr), c.expires)))
 }
 
+fn store_cache(ctx: &Ctx, vault: &Unlocked, expires: u64) -> anyhow::Result<()> {
+    let c = Cached {
+        vault: vault.id.clone(),
+        dek: otpx_core::crypto::b64(vault.dek()),
+        expires,
+    };
+    let json = Zeroizing::new(serde_json::to_vec(&c).expect("session serializes"));
+    ctx.secrets().set(SESSION, &json)
+}
+
 /// Keeps the key per the unlock mode; `ttl` overrides the configured length.
 pub fn remember(ctx: &Ctx, vault: &Unlocked, ttl: Option<u64>) -> anyhow::Result<Option<u64>> {
     let cfg = ctx.config();
@@ -64,14 +92,24 @@ pub fn remember(ctx: &Ctx, vault: &Unlocked, ttl: Option<u64>) -> anyhow::Result
         UnlockMode::KeychainPersistent if ttl.is_none() => 0,
         _ => now_ms() + ttl.unwrap_or(cfg.unlock_ttl_secs) * 1000,
     };
-    let c = Cached {
-        vault: vault.id.clone(),
-        dek: otpx_core::crypto::b64(vault.dek()),
-        expires,
-    };
-    let json = Zeroizing::new(serde_json::to_vec(&c).expect("session serializes"));
-    ctx.secrets().set(SESSION, &json)?;
+    store_cache(ctx, vault, expires)?;
     Ok(Some(expires))
+}
+
+/// After the key rotated (password, recovery code or devices changed): the cached session, if
+/// any, keeps its expiry with the new key.
+fn refresh_cache(ctx: &Ctx, vault: &Unlocked) -> anyhow::Result<()> {
+    let secrets = ctx.secrets();
+    let Some(raw) = secrets.get(SESSION)? else {
+        return Ok(());
+    };
+    if let Ok(c) = serde_json::from_slice::<Cached>(&raw)
+        && c.vault == vault.id
+        && c.dek != otpx_core::crypto::b64(vault.dek())
+    {
+        store_cache(ctx, vault, c.expires)?;
+    }
+    Ok(())
 }
 
 /// Forgets the cached key.
@@ -119,14 +157,16 @@ pub fn read_secret(prompt: &str, from_stdin: bool) -> anyhow::Result<Zeroizing<S
 /// terminal, or fails with exit code 3.
 pub fn open(ctx: &Ctx) -> anyhow::Result<Session> {
     let file = read_file(ctx)?;
-    if let Ok(pw) = std::env::var("OTPX_PASSWORD")
-        && !pw.is_empty()
+    let env_pw = std::env::var("OTPX_PASSWORD")
+        .ok()
+        .filter(|p| !p.is_empty());
+    if let Some(pw) = &env_pw
+        && let Ok(vault) = file.unlock_password(pw)
     {
-        let vault = file
-            .unlock_password(&pw)
-            .map_err(|_| fail(exit::AUTH, "OTPX_PASSWORD does not open this vault"))?;
         return Ok(Session { vault, how: "env" });
     }
+    // OTPX_PASSWORD may already be the new password of a vault re-keyed elsewhere: a cached
+    // key still opens this copy, and the sync re-keys it.
     if let Some((dek, _)) = cached(ctx, &file.id)? {
         match file.unlock_dek(&dek) {
             Ok(vault) => {
@@ -135,8 +175,12 @@ pub fn open(ctx: &Ctx) -> anyhow::Result<Session> {
                     how: "session",
                 });
             }
+            // The key rotated (on another device): unlock again below.
             Err(_) => forget(ctx)?,
         }
+    }
+    if env_pw.is_some() {
+        return Err(fail(exit::AUTH, "OTPX_PASSWORD does not open this vault"));
     }
     if !ui::interactive() {
         return Err(fail(
@@ -165,16 +209,13 @@ pub fn prompt_unlock(ctx: &Ctx, file: &VaultFile, recovery: bool) -> anyhow::Res
     }
     if cfg.quick.touchid && touchid::available() {
         if touchid::authenticate("unlock your otpx vault")? {
-            if let Some(dek) = secrets.get(QUICK_DEK)?
-                && let Ok(arr) = <[u8; 32]>::try_from(dek.as_slice())
-                && let Ok(vault) = file.unlock_dek(&arr)
-            {
-                return Ok(Session {
-                    vault,
-                    how: "touchid",
-                });
+            match secrets.get(TOUCHID_KEY)? {
+                Some(key) => match file.unlock_device(&device_slot(ctx, "touchid"), &key, None) {
+                    Ok(vault) => return Ok(Session { vault, how: "touchid" }),
+                    Err(e) => ctx.ui.warn(&format!("Touch ID did not open the vault ({e}): turn it on again with `otpx quick-unlock enable touchid`")),
+                },
+                None => ctx.ui.warn("the Touch ID key is gone from the keychain: turn it on again"),
             }
-            ctx.ui.warn("Touch ID passed but the key kept for it does not open this vault: run `otpx quick-unlock enable touchid` again");
         } else {
             ctx.ui.note("Touch ID cancelled.");
         }
@@ -202,75 +243,173 @@ pub fn prompt_unlock(ctx: &Ctx, file: &VaultFile, recovery: bool) -> anyhow::Res
     ))
 }
 
-fn pin_path(ctx: &Ctx) -> std::path::PathBuf {
-    ctx.config_dir.join("pin.json")
+fn pin_failures(ctx: &Ctx) -> anyhow::Result<u32> {
+    Ok(ctx
+        .secrets()
+        .get(PIN_FAILS)?
+        .and_then(|b| std::str::from_utf8(&b).ok()?.trim().parse().ok())
+        .unwrap_or(0))
 }
 
-fn pin_secret(pin: &str, device: &[u8]) -> Zeroizing<Vec<u8>> {
-    Zeroizing::new([pin.as_bytes(), b"|", device].concat())
+fn erase_pin_locally(ctx: &Ctx) -> anyhow::Result<()> {
+    let secrets = ctx.secrets();
+    secrets.delete(PIN_KEY)?;
+    secrets.delete(PIN_FAILS)?;
+    ctx.update_config(|c| c.quick.pin = false)
 }
 
 fn pin_unlock(ctx: &Ctx, file: &VaultFile) -> anyhow::Result<Option<Session>> {
-    let Ok(text) = std::fs::read_to_string(pin_path(ctx)) else {
-        return Ok(None);
-    };
-    let wrap: LocalWrap = serde_json::from_str(&text)?;
-    let Some(device) = ctx.secrets().get(PIN_DEVICE)? else {
+    let Some(key) = ctx.secrets().get(PIN_KEY)? else {
         ctx.ui
             .warn("the PIN's device key is gone from the keychain: set the PIN again");
         return Ok(None);
     };
+    let name = device_slot(ctx, "pin");
+    if file.device_slot(&name).is_none() {
+        ctx.ui
+            .warn("this device's PIN was removed (from another device?): use the master password");
+        erase_pin_locally(ctx)?;
+        return Ok(None);
+    }
     loop {
         let pin = read_secret("PIN (empty for the password): ", false)?;
         if pin.is_empty() {
             return Ok(None);
         }
-        if let Ok(dek) = wrap.open(&pin_secret(&pin, &device))
-            && let Ok(vault) = file.unlock_dek(&dek)
-        {
-            ctx.update_config(|c| c.quick.pin_failures = 0)?;
+        // Count the try before making it (one lock for every otpx process): no parallel or
+        // interrupted attempts escape the limit.
+        let tried = {
+            let _lock = ctx.store.lock()?;
+            let n = pin_failures(ctx)? + 1;
+            if n > PIN_ATTEMPTS {
+                erase_pin_locally(ctx)?;
+                ctx.ui.warn(&format!(
+                    "{PIN_ATTEMPTS} wrong PINs: the PIN is erased, use the master password"
+                ));
+                return Ok(None);
+            }
+            ctx.secrets().set(PIN_FAILS, n.to_string().as_bytes())?;
+            n
+        };
+        if let Ok(vault) = file.unlock_device(&name, &key, Some(&pin)) {
+            ctx.secrets().set(PIN_FAILS, b"0")?;
             return Ok(Some(Session { vault, how: "pin" }));
         }
-        let failures = ctx.config().quick.pin_failures + 1;
-        if failures >= PIN_ATTEMPTS {
-            disable_pin(ctx)?;
+        if tried >= PIN_ATTEMPTS {
+            erase_pin_locally(ctx)?;
             ctx.ui.warn(&format!(
                 "{PIN_ATTEMPTS} wrong PINs: the PIN is erased, use the master password"
             ));
             return Ok(None);
         }
-        ctx.update_config(|c| c.quick.pin_failures = failures)?;
         ctx.ui.note(&format!(
             "Wrong PIN ({} attempt(s) left).",
-            PIN_ATTEMPTS - failures
+            PIN_ATTEMPTS - tried
         ));
     }
 }
 
-/// Sets a PIN for this device.
-pub fn enable_pin(ctx: &Ctx, vault: &Unlocked, pin: &str) -> anyhow::Result<()> {
-    let device = Zeroizing::new(otpx_core::crypto::random_bytes(32).map_err(core_failure)?);
-    let wrap = LocalWrap::new(vault, &pin_secret(pin, &device), Some(Argon2Params::KEY))
+/// Turns on quick unlock for this device: a device slot in the vault, its key in the keychain.
+pub fn enable_quick(
+    ctx: &Ctx,
+    s: &mut Session,
+    method: &str,
+    pin: Option<&str>,
+) -> anyhow::Result<()> {
+    require_keychain(ctx)?;
+    let cfg = ctx.config();
+    let label = format!("{} ({method})", cfg.device_name);
+    let key = s
+        .vault
+        .add_device(
+            &device_slot(ctx, method),
+            &label,
+            pin,
+            now_ms(),
+            &cfg.device_id,
+        )
         .map_err(core_failure)?;
-    ctx.secrets().set(PIN_DEVICE, &device)?;
-    crate::paths::write_private(
-        &pin_path(ctx),
-        serde_json::to_string_pretty(&wrap)?.as_bytes(),
-    )?;
+    let secrets = ctx.secrets();
+    match method {
+        "pin" => {
+            secrets.set(PIN_KEY, &key)?;
+            secrets.set(PIN_FAILS, b"0")?;
+        }
+        _ => secrets.set(TOUCHID_KEY, &key)?,
+    }
+    save(ctx, s)?;
     ctx.update_config(|c| {
-        c.quick.pin = true;
-        c.quick.pin_failures = 0;
+        if method == "pin" {
+            c.quick.pin = true;
+        } else {
+            c.quick.touchid = true;
+        }
     })
 }
 
-/// Removes the PIN of this device.
-pub fn disable_pin(ctx: &Ctx) -> anyhow::Result<()> {
-    let _ = std::fs::remove_file(pin_path(ctx));
-    ctx.secrets().delete(PIN_DEVICE)?;
+/// Turns quick unlock off: the slot leaves the vault (and the key rotates), the local key goes.
+pub fn disable_quick(ctx: &Ctx, method: &str) -> anyhow::Result<()> {
+    let secrets = ctx.secrets();
+    if let Ok(mut s) = open(ctx) {
+        let device = ctx.config().device_id;
+        if s.vault
+            .remove_device(&device_slot(ctx, method), now_ms(), &device)
+            .map_err(core_failure)?
+        {
+            save(ctx, &mut s)?;
+        }
+    }
+    if method == "pin" {
+        secrets.delete(PIN_KEY)?;
+        secrets.delete(PIN_FAILS)?;
+    } else {
+        secrets.delete(TOUCHID_KEY)?;
+    }
     ctx.update_config(|c| {
-        c.quick.pin = false;
-        c.quick.pin_failures = 0;
+        if method == "pin" {
+            c.quick.pin = false;
+        } else {
+            c.quick.touchid = false;
+        }
     })
+}
+
+/// The vault key changed on another device (or in another otpx process): unlock `newer` with
+/// the current master password and fold this session's changes into it.
+pub fn rekey(ctx: &Ctx, s: &mut Session, newer: &VaultFile) -> anyhow::Result<()> {
+    if let Ok(pw) = std::env::var("OTPX_PASSWORD")
+        && !pw.is_empty()
+    {
+        let mut other = newer
+            .unlock_password(&pw)
+            .map_err(|_| fail(exit::AUTH, "OTPX_PASSWORD does not open the re-keyed vault"))?;
+        other.absorb_own(&s.vault, now_ms()).map_err(core_failure)?;
+        s.vault = other;
+        return Ok(());
+    }
+    if !ui::interactive() {
+        return Err(fail(
+            exit::LOCKED,
+            "the vault key changed on another device (password, recovery code or devices changed): run `otpx sync` in a terminal and enter the current master password",
+        ));
+    }
+    ctx.ui.note(
+        "The vault key changed on another device (password, recovery code or devices changed).",
+    );
+    let mut other = None;
+    for _ in 0..3 {
+        let pw = read_secret("Current master password: ", false)?;
+        if let Ok(v) = newer.unlock_password(&pw) {
+            other = Some(v);
+            break;
+        }
+        ctx.ui.note("Wrong password, try again.");
+    }
+    let mut other = other.ok_or_else(|| fail(exit::AUTH, "wrong master password"))?;
+    other.absorb_own(&s.vault, now_ms()).map_err(core_failure)?;
+    s.vault = other;
+    remember(ctx, &s.vault, None)?;
+    Ok(())
 }
 
 /// Saves the vault: merges what another otpx wrote meanwhile, keeps a snapshot, writes, then
@@ -293,14 +432,29 @@ pub fn write_local(ctx: &Ctx, s: &mut Session) -> anyhow::Result<()> {
     let _lock = ctx.store.lock()?;
     if let Some((disk, _)) = ctx.store.read()?
         && disk.id == s.vault.id
-        && let Ok(other) = disk.unlock_dek(s.vault.dek())
     {
-        s.vault.absorb(&other, now_ms()).map_err(core_failure)?;
-        // Same content: keep the file (a new nonce would only make a needless snapshot).
-        if s.vault.data == other.data && s.vault.slots == other.slots {
-            return Ok(());
+        if disk.key_id == s.vault.key_id() {
+            if let Ok(other) = disk.unlock_dek(s.vault.dek()) {
+                s.vault.absorb_own(&other, now_ms()).map_err(core_failure)?;
+                // Same content: keep the file (a new nonce would only make a needless snapshot).
+                if s.vault.data == other.data && s.vault.keyring == other.keyring {
+                    refresh_cache(ctx, &s.vault)?;
+                    return Ok(());
+                }
+            }
+        } else if !disk.retired_by(&s.vault.keyring) {
+            // Another otpx re-keyed the vault meanwhile (a sync brought a new key).
+            rekey(ctx, s, &disk)?;
         }
     }
     let json = s.vault.seal().map_err(core_failure)?.to_json();
-    ctx.store.write(&json, now_ms())
+    ctx.store.write(&json, now_ms())?;
+    refresh_cache(ctx, &s.vault)
+}
+
+/// Tells the user when a merge took another device's keyring.
+pub fn note_keyring(ctx: &Ctx, change: KeyringChange) {
+    if change == KeyringChange::Adopted {
+        ctx.ui.note("The password, recovery code or quick-unlock devices changed on another device: that change is applied here too.");
+    }
 }

@@ -4,7 +4,8 @@
 import type { Vault } from './wasm';
 
 export type Fetched = { content: string; version: string } | null;
-export type Pushed = { version: string } | 'conflict';
+/** `lost`: the write landed but replaced a version written meanwhile (gists): merge it, push again. */
+export type Pushed = { version: string; lost?: string } | 'conflict';
 
 export interface Backend {
   fetch(): Promise<Fetched>;
@@ -29,6 +30,8 @@ export class SyncError extends Error {
   constructor(
     message: string,
     readonly status = 0,
+    /** For `key-changed`: the remote file, to unlock with the current password. */
+    readonly remote?: string,
   ) {
     super(message);
   }
@@ -156,7 +159,19 @@ export function gist(token: string, id: string, file: string, api = API): Backen
       });
       if (!r.ok) throw await failure(`gist ${id}`, r);
       const after = (await r.json()) as { history: { version: string }[] };
-      return { version: after.history[0]?.version ?? '' };
+      const version = after.history[0]?.version ?? '';
+      // No conditional write on gists: if another write landed between our check and our
+      // PATCH, our parent is not the version we merged. Hand it back to be merged.
+      const parent = after.history[1]?.version;
+      if (base !== null && parent && parent !== base) {
+        const prev = await gh(token, `${api}/gists/${id}/${parent}`);
+        if (prev.ok) {
+          const pv = (await prev.json()) as { files: Record<string, { content?: string } | null> };
+          const lost = pv.files[file]?.content;
+          if (lost) return { version, lost };
+        }
+      }
+      return { version };
     },
   };
 }
@@ -226,32 +241,48 @@ export function fileHandle(handle: FileSystemFileHandle): Backend {
 
 export type Outcome = 'up' | 'pushed' | 'pulled' | 'merged';
 
-/** Syncs `vault` with one backend: fetch, merge, write back only if unchanged meanwhile. */
+function absorbRemote(
+  vault: Vault,
+  content: string,
+  now: () => number,
+): { changed: boolean; differs: boolean } {
+  try {
+    return JSON.parse(vault.absorb(content, now())) as { changed: boolean; differs: boolean };
+  } catch (e) {
+    const m = e instanceof Error ? e.message : String(e);
+    if (m.startsWith('other-vault')) throw new SyncError('other-vault');
+    if (m === 'key-changed') throw new SyncError('key-changed', 0, content);
+    throw new SyncError(m);
+  }
+}
+
+/** Syncs `vault` with one backend: fetch, merge, write back only if unchanged meanwhile.
+ *  Throws `key-changed` (with the remote file) when the vault was re-keyed elsewhere. */
 export async function syncOne(
   vault: Vault,
   backend: Backend,
   device: string,
   now = Date.now,
 ): Promise<Outcome> {
+  let pulled = false;
   for (let attempt = 0; attempt < 6; attempt++) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, 150 * attempt));
     const remote = await backend.fetch();
-    let pulled = false;
     let base: string | null = null;
     if (remote) {
-      let res: { changed: boolean; differs: boolean };
-      try {
-        res = JSON.parse(vault.absorb(remote.content, now())) as { changed: boolean; differs: boolean };
-      } catch (e) {
-        const m = e instanceof Error ? e.message : String(e);
-        throw new SyncError(m.startsWith('other-vault') ? 'other-vault' : m);
-      }
-      pulled = res.changed;
+      const res = absorbRemote(vault, remote.content, now);
+      pulled ||= res.changed;
       if (!res.differs) return pulled ? 'pulled' : 'up';
       base = remote.version;
     }
     const pushed = await backend.push(vault.seal(), base, `otpx: sync from ${device}`);
-    if (pushed !== 'conflict') return pulled ? 'merged' : 'pushed';
+    if (pushed === 'conflict') continue;
+    if (pushed.lost) {
+      // Merge what our write replaced, then write again.
+      pulled ||= absorbRemote(vault, pushed.lost, now).changed;
+      continue;
+    }
+    return pulled ? 'merged' : 'pushed';
   }
   throw new SyncError('the remote kept changing during the sync; try again');
 }

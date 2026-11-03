@@ -165,7 +165,8 @@ pub fn selftest(ctx: &Ctx) -> anyhow::Result<ExitCode> {
         ) == "94287082",
     );
     let vault_ok = (|| -> otpx_core::Result<bool> {
-        let mut c = otpx_core::vault::Unlocked::create("selftest", Argon2Params::TEST, 1)?;
+        let mut c =
+            otpx_core::vault::Unlocked::create("selftest", Argon2Params::KEY, 1, "selftest")?;
         c.vault.data.add(
             Entry::new("Self", "test", b"12345678901234567890".to_vec()),
             1,

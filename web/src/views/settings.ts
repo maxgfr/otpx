@@ -7,7 +7,7 @@ import * as pin from '../pin';
 import { app } from '../state';
 import { button, field, input, notice, pageHead, select, toast } from '../ui';
 import { message } from '../wasm';
-import { FAST_KDF, weakness } from './start';
+import { weakness } from './start';
 
 interface Slot {
   id: string;
@@ -62,7 +62,7 @@ export async function settings(main: HTMLElement, rerender: () => void): Promise
       onsubmit: (async (e: Event) => {
         e.preventDefault();
         try {
-          v.setPassword(pw.value, Date.now(), FAST_KDF);
+          v.setPassword(pw.value, Date.now(), app.device.id);
           await app.save();
           pw.value = '';
           mount(pwStatus, notice(t('settings.password.done')));
@@ -91,7 +91,7 @@ export async function settings(main: HTMLElement, rerender: () => void): Promise
       { class: 'actions' },
       button(t('settings.recovery.make'), async () => {
         try {
-          const code = v.resetRecovery(Date.now());
+          const code = v.resetRecovery(Date.now(), app.device.id);
           await app.save();
           mount(
             rcOut,
@@ -125,7 +125,7 @@ export async function settings(main: HTMLElement, rerender: () => void): Promise
             button(
               t('remove'),
               async () => {
-                v.removeSlot(sl.id);
+                v.removeSlot(sl.id, Date.now(), app.device.id);
                 await app.save();
                 rerender();
               },
@@ -140,7 +140,7 @@ export async function settings(main: HTMLElement, rerender: () => void): Promise
     async () => {
       try {
         const r = await passkey.create(app.device.name);
-        v.addPasskey(r.credential, r.salt, r.prf, app.device.name, Date.now());
+        v.addPasskey(r.credential, r.salt, r.prf, app.device.name, Date.now(), app.device.id);
         await app.save();
         toast(t('settings.passkeys.added'));
         rerender();
@@ -154,7 +154,7 @@ export async function settings(main: HTMLElement, rerender: () => void): Promise
   );
 
   // PIN.
-  const pinSet = await pin.isSet(app.store, v.id());
+  const pinSet = await pin.isSet(app.store, v.seal());
   const pinInput = input({
     type: 'password',
     inputmode: 'numeric',
@@ -173,7 +173,8 @@ export async function settings(main: HTMLElement, rerender: () => void): Promise
           mount(pinStatus, notice(t('settings.pin.invalid'), 'error'));
           return;
         }
-        await pin.enable(app.store, v, pinInput.value, FAST_KDF);
+        await pin.enable(app.store, v, pinInput.value, app.device.id, `${app.device.name} (PIN)`);
+        await app.save();
         toast(t('settings.pin.done'));
         rerender();
       }) as EventListener,
@@ -230,6 +231,7 @@ export async function settings(main: HTMLElement, rerender: () => void): Promise
         { class: 'block tag-plate' },
         h('h2', {}, t('settings.pin')),
         h('p', {}, t('settings.pin.lead')),
+        location.hostname.endsWith('github.io') ? notice(t('settings.pin.shared'), 'warn') : null,
         pinSet
           ? h(
               'div',
@@ -237,7 +239,8 @@ export async function settings(main: HTMLElement, rerender: () => void): Promise
               button(
                 t('settings.pin.remove'),
                 async () => {
-                  await pin.disable(app.store);
+                  await pin.disable(app.store, v, app.device.id);
+                  await app.save();
                   rerender();
                 },
                 { kind: 'quiet' },

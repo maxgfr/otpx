@@ -211,9 +211,12 @@ fn totp_cli_file() {
     // The encrypted file is an armored age file with a scrypt passphrase stanza.
     let enc = {
         use std::io::Write;
-        let e = age::Encryptor::with_user_passphrase(age::secrecy::SecretString::from(
-            "cli pw".to_owned(),
-        ));
+        // totp-cli writes scrypt work factor 15.
+        let mut r =
+            age::scrypt::Recipient::new(age::secrecy::SecretString::from("cli pw".to_owned()));
+        r.set_work_factor(15);
+        let e =
+            age::Encryptor::with_recipients(std::iter::once(&r as &dyn age::Recipient)).unwrap();
         let mut out = Vec::new();
         let armor =
             age::armor::ArmoredWriter::wrap_output(&mut out, age::armor::Format::AsciiArmor)
@@ -269,7 +272,8 @@ fn uris_inside_other_text() {
 
 #[test]
 fn otpx_vault_import_and_paper() {
-    let mut c = crate::vault::Unlocked::create("pw", crate::crypto::Argon2Params::TEST, 1).unwrap();
+    let mut c =
+        crate::vault::Unlocked::create("pw", crate::crypto::Argon2Params::TEST, 1, "d").unwrap();
     for e in samples() {
         c.vault.data.add(e, 1, "d").unwrap();
     }
@@ -294,4 +298,76 @@ fn format_names() {
         assert_eq!(ExportFormat::parse(name), Some(*fmt));
     }
     assert_eq!(Format::parse("Microsoft"), Some(Format::MsAuth));
+}
+
+#[test]
+fn hostile_google_batch_size_is_ignored() {
+    // batch_size = i32::MAX used to allocate gigabytes in missing_batches().
+    let uri = "otpauth-migration://offline?data=CiIKFDEyMzQ1Njc4OTAxMjM0NTY3ODkwEgFhGgFiIAEoATACEAEY/////wcoAQ==";
+    let got = import(uri.as_bytes(), Format::Auto, None).unwrap();
+    assert_eq!(got.entries.len(), 1);
+    assert!(got.missing_batches().is_empty());
+}
+
+#[test]
+fn transfer_links_with_spaces_for_plus_still_import() {
+    let uris = google::export(&samples()[..1]).unwrap();
+    let raw = percent_encoding::percent_decode_str(&uris[0])
+        .decode_utf8_lossy()
+        .into_owned();
+    assert!(raw.contains('+') || raw.contains('/'), "{raw}");
+    let spaced = raw.replace('+', " ");
+    assert_eq!(
+        import(spaced.as_bytes(), Format::Auto, None)
+            .unwrap()
+            .entries
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn password_manager_csv_exports() {
+    // LastPass: the website is in `url`, the secret in `totp`.
+    let lastpass = "url,username,password,totp,extra,name,grouping,fav\nhttps://github.com,me,pw,JBSWY3DPEHPK3PXP,,GitHub,,0\n";
+    let got = import(lastpass.as_bytes(), Format::Csv, None).unwrap();
+    assert_eq!(got.entries.len(), 1, "{:?}", got.skipped);
+    assert_eq!(got.entries[0].issuer, "GitHub");
+    // 1Password: an `OTPAuth` column next to `Url`.
+    let op = "Title,Url,Username,Password,OTPAuth\nAWS,https://aws.amazon.com,root,pw,otpauth://totp/AWS:root?secret=GEZDGNBVGY3TQOJQ&issuer=AWS\n";
+    assert_eq!(
+        import(op.as_bytes(), Format::Csv, None)
+            .unwrap()
+            .entries
+            .len(),
+        1
+    );
+    // Bitwarden CSV: `login_totp`.
+    let bw = "folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp\n,,login,Mail,,,0,https://mail.example,bob,pw,JBSWY3DPEHPK3PXP\n";
+    assert_eq!(
+        import(bw.as_bytes(), Format::Csv, None)
+            .unwrap()
+            .entries
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn hostile_backup_costs_are_refused() {
+    // An Aegis slot asking for scrypt N=2^22 (4 GiB).
+    let v: serde_json::Value =
+        serde_json::from_str(&export(&samples(), ExportFormat::Aegis, Some("pw"), 0).unwrap())
+            .unwrap();
+    let mut evil = v.clone();
+    evil["header"]["slots"][0]["n"] = serde_json::json!(1u64 << 22);
+    assert!(import(evil.to_string().as_bytes(), Format::Auto, Some("pw")).is_err());
+    // A huge declared image is refused before decoding.
+    let mut png = vec![
+        0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, b'I', b'H', b'D', b'R',
+    ];
+    png.extend_from_slice(&100_000u32.to_be_bytes());
+    png.extend_from_slice(&100_000u32.to_be_bytes());
+    png.extend_from_slice(&[8, 0, 0, 0, 0, 0, 0, 0, 0]);
+    assert!(crate::qr::decode_image(&png).is_err());
 }

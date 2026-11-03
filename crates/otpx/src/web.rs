@@ -150,7 +150,7 @@ pub fn serve(ctx: &Ctx, source: Source, port: u16, open_browser: bool) -> anyhow
                 .iter()
                 .find(|h| h.field.equiv("X-Otpx-Token"))
                 .map(|h| h.value.as_str().to_owned());
-            if auth.as_deref() != Some(token.as_str()) {
+            if !auth.is_some_and(|a| otpx_core::crypto::ct_eq(a.as_bytes(), token.as_bytes())) {
                 let _ = req.respond(secured(
                     Response::from_string("missing or wrong token").with_status_code(401),
                 ));
@@ -209,13 +209,19 @@ fn api_vault(ctx: &Ctx, req: &mut tiny_http::Request) -> Response<std::io::Curso
             };
             let content = v["content"].as_str().unwrap_or_default();
             let base = v["version"].as_str();
-            if otpx_core::vault::VaultFile::parse(content).is_err() {
+            let Ok(incoming) = otpx_core::vault::VaultFile::parse(content) else {
                 return json(400, serde_json::json!({ "error": "not an otpx vault" }));
-            }
+            };
             let Ok(_lock) = ctx.store.lock() else {
                 return json(500, serde_json::json!({ "error": "cannot lock the vault" }));
             };
-            let current = ctx.store.read().ok().flatten().map(|(_, t)| version_of(&t));
+            let disk = ctx.store.read().ok().flatten();
+            if let Some((f, _)) = &disk
+                && f.id != incoming.id
+            {
+                return json(409, serde_json::json!({ "error": "this is another vault" }));
+            }
+            let current = disk.map(|(_, t)| version_of(&t));
             if current.as_deref() != base {
                 return json(409, serde_json::json!({ "error": "changed meanwhile" }));
             }

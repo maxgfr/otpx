@@ -26,6 +26,7 @@ aes-gcm = { version = "0.11", default-features = false, features = ["alloc", "ae
 scrypt = { version = "0.12", default-features = false }
 pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
 hkdf = "0.13"
+x25519-dalek = { version = "2", default-features = false, features = ["static_secrets", "zeroize"] }
 zeroize = { version = "1.9", features = ["derive"] }
 getrandom = "0.4"
 data-encoding = "2.11"

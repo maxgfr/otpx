@@ -299,9 +299,28 @@ impl Backend for Gist {
             )));
         }
         let v: Value = serde_json::from_str(&text).map_err(anyhow::Error::from)?;
-        Ok(v["history"][0]["version"]
+        let version = v["history"][0]["version"]
             .as_str()
             .unwrap_or_default()
-            .to_owned())
+            .to_owned();
+        // No conditional write on gists: if another write landed between our check and our
+        // PATCH, our parent is not the version we merged. Fetch it so the caller merges it.
+        let parent = v["history"][1]["version"].as_str().unwrap_or_default();
+        if let Some(b) = base
+            && !parent.is_empty()
+            && parent != b
+        {
+            let (st, body) = send(
+                agent().get(&format!("{}/gists/{}/{parent}", api(), self.id)),
+                &self.token,
+            )?;
+            if st == 200 {
+                let pv: Value = serde_json::from_str(&body).map_err(anyhow::Error::from)?;
+                if let Some(c) = pv["files"][&self.file]["content"].as_str() {
+                    return Err(PushError::Overwrote(c.to_owned()));
+                }
+            }
+        }
+        Ok(version)
     }
 }

@@ -17,7 +17,7 @@ async function shot(page: Page, name: string): Promise<void> {
 }
 
 async function createVault(page: Page): Promise<void> {
-  await page.goto('/?test-fast-kdf');
+  await page.goto('/');
   await shot(page, '01-welcome');
   await page.getByRole('link', { name: /Create a vault/ }).click();
   await page.getByLabel('Master password').fill(PW);
@@ -41,14 +41,14 @@ test('create, add, read codes, edit, share, lock and unlock', async ({ page, con
   await expect(page.getByRole('heading', { name: 'No account yet' })).toBeVisible();
   await shot(page, '04-empty');
 
-  await page.goto('/?test-fast-kdf#/add');
+  await page.goto('/#/add');
   await page.getByRole('tab', { name: 'Paste' }).click();
   await page.getByLabel('Links').fill([GH, AWS, BANK].join('\n'));
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   await expect(page.getByText('Added 3 accounts.')).toBeVisible();
   await shot(page, '05-added');
 
-  await page.goto('/?test-fast-kdf#/');
+  await page.goto('/#/');
   const board = page.getByRole('list', { name: 'Accounts' });
   await expect(board.getByRole('listitem')).toHaveCount(3);
   // Codes come from the Rust core: 6 digits grouped for GitHub, 8 for AWS.
@@ -100,12 +100,27 @@ test('create, add, read codes, edit, share, lock and unlock', async ({ page, con
     ['#/settings', '12-settings'],
     ['#/add', '13-add'],
   ] as const) {
-    await page.goto(`/?test-fast-kdf${route}`);
+    await page.goto(`/${route}`);
     await page.waitForSelector('h1');
     await shot(page, name);
   }
 
+  // A PIN for this browser: set it, lock, a wrong PIN is counted, the right one opens.
+  await page.goto('/#/settings');
+  await page.getByLabel('New PIN (4 to 12 digits)').fill('482913');
+  await page.getByRole('button', { name: 'Set a PIN' }).click();
+  await expect(page.getByRole('button', { name: 'Remove the PIN' })).toBeVisible();
   await page.getByRole('button', { name: 'Lock' }).first().click();
+  await expect(page.getByLabel('PIN')).toBeVisible();
+  await page.getByLabel('PIN').fill('000000');
+  await page.getByRole('button', { name: 'Unlock' }).click();
+  await expect(page.getByText('Wrong PIN. 4 attempts left.')).toBeVisible();
+  await page.getByLabel('PIN').fill('482913');
+  await page.getByRole('button', { name: 'Unlock' }).click();
+  await expect(page.getByRole('list', { name: 'Accounts' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Lock' }).first().click();
+  await page.getByRole('button', { name: 'Use the master password' }).click();
   await expect(page.getByRole('heading', { name: 'Unlock' })).toBeVisible();
   await page.getByLabel('Master password').fill('wrong');
   await page.getByRole('button', { name: 'Unlock' }).click();
@@ -127,7 +142,7 @@ test('create, add, read codes, edit, share, lock and unlock', async ({ page, con
   if (other) {
     const p2 = await other.newPage();
     await createVault(p2);
-    await p2.goto(`/?test-fast-kdf${link.slice(link.indexOf('#'))}`);
+    await p2.goto(`/${link.slice(link.indexOf('#'))}`);
     await expect(p2.getByRole('heading', { name: 'Shared with you' })).toBeVisible();
     await shot(p2, '15-receive');
     await p2.getByRole('button', { name: 'Add to my vault' }).click();
@@ -140,7 +155,7 @@ test('create, add, read codes, edit, share, lock and unlock', async ({ page, con
 test('French interface and vault reload after a page refresh', async ({ browser }) => {
   const ctx = await browser.newContext({ locale: 'fr-FR' });
   const page = await ctx.newPage();
-  await page.goto('/?test-fast-kdf');
+  await page.goto('/');
   await expect(page.getByRole('link', { name: /Créer un coffre/ })).toBeVisible();
   await page.getByRole('link', { name: /Créer un coffre/ }).click();
   await page.getByLabel('Mot de passe maître').fill('1234');

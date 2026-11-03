@@ -74,6 +74,10 @@ export class App {
   syncing = false;
   /** The new vault's recovery code is on screen and not confirmed yet. */
   recoveryPending = false;
+  /** A remote holds the vault under a new key (password changed elsewhere): unlock it. */
+  rekey: { name: string; remote: string } | null = null;
+  private syncAgain = false;
+  private lastActivity = Date.now();
   lastError: string | null = null;
   private listeners = new Set<Listener>();
   private lockTimer: ReturnType<typeof setTimeout> | null = null;
@@ -166,12 +170,14 @@ export class App {
     await this.store.set('handles', this.files);
   }
 
-  /** Seals and stores the vault; syncs a moment later when remotes exist. */
+  /** Seals and stores the vault (and the device-local data, whose key follows the vault key);
+   *  syncs a moment later when remotes exist. */
   async save(sync = true): Promise<void> {
     if (!this.vault) return;
     const sealed = this.vault.seal();
     this.file = sealed;
     await this.store.set('vault', sealed);
+    await this.saveLocal();
     if (sync && this.allRemotes().length) {
       if (this.syncTimer) clearTimeout(this.syncTimer);
       this.syncTimer = setTimeout(() => void this.syncAll(), 800);
@@ -190,7 +196,12 @@ export class App {
   /** Syncs with every remote; returns per-remote results. */
   async syncAll(): Promise<{ name: string; result?: Outcome; error?: string }[]> {
     const vault = this.vault;
-    if (!vault || this.syncing) return [];
+    if (!vault) return [];
+    if (this.syncing) {
+      // A change made during a sync goes out right after it.
+      this.syncAgain = true;
+      return [];
+    }
     this.syncing = true;
     this.lastError = null;
     this.emit();
@@ -209,6 +220,11 @@ export class App {
           const kept = this.remotes.find((x) => x.name === r.name);
           if (kept) kept.lastSync = Date.now();
         } catch (e) {
+          if (e instanceof SyncError && e.message === 'key-changed' && e.remote) {
+            this.rekey = { name: r.name, remote: e.remote };
+            out.push({ name: r.name, error: 'key-changed' });
+            break;
+          }
           const m = e instanceof SyncError && e.message === 'other-vault' ? 'other-vault' : message(e);
           out.push({ name: r.name, error: m });
           this.lastError = `${r.name}: ${m}`;
@@ -224,15 +240,54 @@ export class App {
       this.syncing = false;
       this.emit();
     }
+    if (this.syncAgain && this.vault) {
+      this.syncAgain = false;
+      void this.syncAll();
+    }
     return out;
+  }
+
+  /** The vault was re-keyed elsewhere: `newer` (the remote, unlocked with the current password)
+   *  takes this browser's changes and becomes the vault. */
+  async adoptRekeyed(newer: Vault): Promise<void> {
+    const old = this.vault;
+    if (old) newer.absorbOwn(old, Date.now());
+    const remotes = this.remotes;
+    this.vault = newer;
+    this.remotes = remotes;
+    this.rekey = null;
+    old?.free();
+    await this.save(false);
+    this.touch();
+    this.emit();
+    void this.syncAll();
+  }
+
+  private lockAfterMs(): number {
+    if (!this.vault) return 0;
+    const secs = (JSON.parse(this.vault.settings()) as { auto_lock_secs: number }).auto_lock_secs;
+    return Math.max(30, secs) * 1000;
   }
 
   /** Restarts the inactivity timer. */
   touch(): void {
     if (!this.vault) return;
+    this.lastActivity = Date.now();
     if (this.lockTimer) clearTimeout(this.lockTimer);
-    const secs = (JSON.parse(this.vault.settings()) as { auto_lock_secs: number }).auto_lock_secs;
-    this.lockTimer = setTimeout(() => this.lock('auto'), Math.max(30, secs) * 1000);
+    this.lockTimer = setTimeout(() => this.checkIdle(), this.lockAfterMs());
+  }
+
+  /** Locks when the idle time passed: timers are throttled in background tabs and stop
+   *  during sleep, so the wall clock decides (also checked when the page comes back). */
+  checkIdle(): void {
+    if (!this.vault) return;
+    const left = this.lastActivity + this.lockAfterMs() - Date.now();
+    if (left <= 0) {
+      this.lock('auto');
+    } else {
+      if (this.lockTimer) clearTimeout(this.lockTimer);
+      this.lockTimer = setTimeout(() => this.checkIdle(), left);
+    }
   }
 
   lockReason: 'auto' | 'user' | null = null;

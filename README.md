@@ -70,8 +70,10 @@ In the web app: *Get my vault from GitHub*, or open the device link.
 ## Security model
 
 - The vault is one JSON file: a random 256-bit key encrypts the accounts with
-  XChaCha20-Poly1305; that key is wrapped once per way to unlock (master password through
-  Argon2id 64 MiB × 3, recovery code, passkey PRF). Changing the password re-wraps the key only.
+  XChaCha20-Poly1305 and is sealed to each way to unlock (master password through Argon2id
+  64 MiB × 3, recovery code, passkey PRF, device keys for Touch ID and PINs) in an authenticated
+  keyring that a remote cannot alter. Changing the password, the recovery code or the devices
+  rotates the key, so an old password or an old copy of the file reads nothing new.
   Remotes, backups and exports of the vault only ever hold ciphertext.
 - GitHub tokens stay in the OS keychain (CLI) or encrypted with the vault key (web app).
 - Copied codes are cleared from the clipboard after 20 s.

@@ -44,7 +44,7 @@ fn golden_vault_opens_with_the_same_codes() {
 }
 
 fn write() {
-    let c = Unlocked::create(PASSWORD, Argon2Params::TEST, 1_700_000_000_000).unwrap();
+    let c = Unlocked::create(PASSWORD, Argon2Params::KEY, 1_700_000_000_000, "golden").unwrap();
     let mut v = c.vault;
     let mut add = |issuer: &str, account: &str, secret: &[u8], f: &dyn Fn(&mut Entry)| {
         let mut e = Entry::new(issuer, account, secret.to_vec());

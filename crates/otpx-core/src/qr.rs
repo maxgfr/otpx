@@ -6,19 +6,46 @@ use crate::{Error, Result};
 
 /// Every QR code found in an image file (PNG, JPEG, GIF, WebP, BMP).
 pub fn decode_image(bytes: &[u8]) -> Result<Vec<String>> {
-    let img =
-        image::load_from_memory(bytes).map_err(|e| Error::Qr(format!("unreadable image: {e}")))?;
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|e| Error::Qr(format!("unreadable image: {e}")))?;
+    // Screenshots are at most a few thousand pixels; a tiny file declaring a huge image is hostile.
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(8192);
+    limits.max_image_height = Some(8192);
+    limits.max_alloc = Some(256 * 1024 * 1024);
+    reader.limits(limits);
+    let img = reader
+        .decode()
+        .map_err(|e| Error::Qr(format!("unreadable image: {e}")))?;
     Ok(decode_luma(img.to_luma8()))
 }
 
 /// Every QR code in an RGBA frame (a browser `ImageData`).
 pub fn decode_rgba(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<String>> {
+    if width > 8192 || height > 8192 {
+        return Err(Error::Qr("frame too large".into()));
+    }
     let img = image::RgbaImage::from_raw(width, height, rgba.to_vec())
         .ok_or_else(|| Error::Qr("frame size does not match its dimensions".into()))?;
     Ok(decode_luma(image::DynamicImage::ImageRgba8(img).to_luma8()))
 }
 
-fn decode_luma(img: image::GrayImage) -> Vec<String> {
+fn decode_luma(mut img: image::GrayImage) -> Vec<String> {
+    // rqrr's cost grows with the area: bring huge images down first.
+    if img.width().max(img.height()) > 2400 {
+        let k = 2400.0 / f64::from(img.width().max(img.height()));
+        let (w, h) = (
+            (f64::from(img.width()) * k) as u32,
+            (f64::from(img.height()) * k) as u32,
+        );
+        img = image::imageops::resize(
+            &img,
+            w.max(1),
+            h.max(1),
+            image::imageops::FilterType::Triangle,
+        );
+    }
     let mut found = scan(&img);
     // Screenshots of phones are often huge; a smaller copy is found more reliably.
     if found.is_empty() && img.width().max(img.height()) > 1200 {

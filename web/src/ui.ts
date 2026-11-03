@@ -1,5 +1,6 @@
 // Shared pieces of the interface: toast, fields, buttons, the tag eyelet, notices.
 
+import { copy } from './clipboard';
 import { h, type IconName, icon, rich } from './dom';
 import { t } from './i18n';
 
@@ -112,10 +113,8 @@ export function linkRow(link: string): HTMLDivElement {
     button(
       t('share.copy'),
       async () => {
-        const ok = await navigator.clipboard.writeText(link).then(
-          () => true,
-          () => false,
-        );
+        // A link opens the account for whoever holds it: it leaves the clipboard too.
+        const ok = await copy(link, 60);
         if (!ok) box.select();
         toast(ok ? t('copied') : t('copy.failed'));
       },

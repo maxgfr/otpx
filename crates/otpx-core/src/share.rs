@@ -130,6 +130,13 @@ pub fn open_link(link: &str, passphrase: Option<&str>, now_ms: u64) -> Result<Sh
     let (nonce, ct) = blob.split_at(crypto::NONCE_LEN);
     let plain = crypto::open(&key, nonce, AAD, ct)?;
     let share: Share = serde_json::from_slice(&plain).map_err(|e| Error::format("share", e))?;
+    // A device setup redirects sync: never accept one that anyone holding the link could open.
+    if share.device.is_some() && salt.is_none() {
+        return Err(Error::format(
+            "share link",
+            "a device link must be protected by a passphrase",
+        ));
+    }
     share.check(now_ms)
 }
 
@@ -241,6 +248,21 @@ mod tests {
             open_link(&link, Some("tulip"), 101),
             Err(Error::Expired)
         ));
+    }
+
+    #[test]
+    fn device_links_need_a_passphrase() {
+        let s = Share {
+            v: 1,
+            entries: Vec::new(),
+            device: Some(serde_json::json!({"remotes": []})),
+            expires: 0,
+            note: String::new(),
+        };
+        let open = create_link(DEFAULT_BASE, &s, None).unwrap();
+        assert!(open_link(&open, None, 1).is_err());
+        let locked = create_link(DEFAULT_BASE, &s, Some("pass phrase")).unwrap();
+        assert!(open_link(&locked, Some("pass phrase"), 1).is_ok());
     }
 
     #[test]

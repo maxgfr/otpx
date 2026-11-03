@@ -1,5 +1,7 @@
-// Copying codes, cleared after the vault's delay (when the page still has focus: browsers
-// only let a focused page write the clipboard).
+// Copies, cleared after a delay. Browsers only let a focused page write the clipboard, so a
+// clear that comes due while the page is in the background happens when it is back. Where the
+// page may read the clipboard (Chromium), only our own text is cleared; elsewhere the clipboard
+// is cleared whatever it holds by then.
 
 let clearTimer: ReturnType<typeof setTimeout> | null = null;
 let pending: string | null = null;
@@ -7,9 +9,11 @@ let pending: string | null = null;
 async function clearNow(): Promise<boolean> {
   if (pending === null) return false;
   try {
-    // Only clear what we put there.
-    const now = await navigator.clipboard.readText().catch(() => pending);
-    if (now === pending) await navigator.clipboard.writeText('');
+    const now = await navigator.clipboard.readText().then(
+      (t) => t,
+      () => null,
+    );
+    if (now === null || now === pending) await navigator.clipboard.writeText('');
     pending = null;
     return true;
   } catch {
@@ -31,7 +35,6 @@ export async function copy(text: string, clearAfterSecs: number, onCleared?: () 
       if (document.hasFocus() && (await clearNow())) {
         onCleared?.();
       } else {
-        // Not focused: clear as soon as the page is back.
         const back = async () => {
           window.removeEventListener('focus', back);
           if (await clearNow()) onCleared?.();

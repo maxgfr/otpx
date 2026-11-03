@@ -57,13 +57,30 @@ impl Argon2Params {
     /// For tests only.
     pub const TEST: Argon2Params = Argon2Params { m: 64, t: 1, p: 1 };
 
-    /// Refuses costs that would be trivial to brute-force or exhaust memory.
+    /// Refuses costs that are trivial to brute-force or that would exhaust memory (a vault
+    /// or backup file is untrusted input). Test-only costs pass in debug builds.
     pub fn check(&self) -> Result<()> {
-        if self.p != 1 || self.t == 0 || self.t > 64 || self.m > 4 * 1024 * 1024 {
+        let too_weak = self.m < Argon2Params::KEY.m || self.t < Argon2Params::KEY.t;
+        // Browsers get a quarter of the native ceiling: wasm memory is small and shared.
+        let max_m = if cfg!(target_arch = "wasm32") {
+            256 * 1024
+        } else {
+            1024 * 1024
+        };
+        if self.p != 1 || self.t > 10 || self.m > max_m || (too_weak && !cfg!(debug_assertions)) {
             return Err(Error::format("vault", "unsupported Argon2 parameters"));
         }
         Ok(())
     }
+}
+
+/// HMAC-SHA256 of `msg` with `key`.
+pub fn hmac(key: &[u8], msg: &[u8]) -> [u8; 32] {
+    use hmac::{KeyInit, Mac};
+    let mut m = <hmac::Hmac<sha2::Sha256> as KeyInit>::new_from_slice(key)
+        .expect("HMAC takes keys of any length");
+    m.update(msg);
+    m.finalize().into_bytes().into()
 }
 
 /// Argon2id of `secret` with `salt`.

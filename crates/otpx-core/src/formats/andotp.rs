@@ -20,7 +20,7 @@ fn gcm(key: &[u8], nonce: &[u8], ct: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
 fn decrypt(bytes: &[u8], password: &str) -> Result<Zeroizing<Vec<u8>>> {
     if bytes.len() > 4 + 12 + 12 + 16 {
         let iter = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-        if (1..=10_000_000).contains(&iter) {
+        if (1..=1_000_000).contains(&iter) {
             let mut key = Zeroizing::new([0u8; 32]);
             pbkdf2::pbkdf2_hmac::<sha1::Sha1>(
                 password.as_bytes(),

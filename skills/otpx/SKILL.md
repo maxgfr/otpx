@@ -20,7 +20,7 @@ and the process exits with that code. `otpx <command> --help` is the reference.
 
 | exit | code | what to do |
 |---|---|---|
-| 3 | `locked` | ask the user to run `! otpx unlock` (Touch ID, PIN or password), then retry |
+| 3 | `locked` | ask the user to run `! otpx unlock` (Touch ID, PIN or password), then retry; if the message says the vault key changed, `! otpx sync` instead |
 | 4 | `not_found` | no vault (`otpx init` or `otpx sync setup …`), or no matching account: list them |
 | 5 | `ambiguous` | the message lists candidates with ids: retry with an id or ask the user |
 | 6 | `auth` | wrong password/passphrase: let the user retype it themselves |

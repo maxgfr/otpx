@@ -32,10 +32,11 @@ fn gcm_seal(key: &[u8], plain: &[u8]) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>)> {
 
 /// scrypt as Aegis runs it (N, r, p from the slot, 32-byte key).
 fn scrypt_key(password: &str, salt: &[u8], n: u64, r: u32, p: u32) -> Result<Zeroizing<[u8; 32]>> {
+    // Aegis writes N=2^15, r=8, p=1; anything far above is a memory bomb.
     if !n.is_power_of_two()
-        || !(2..=(1 << 22)).contains(&n)
-        || !(1..=32).contains(&r)
-        || !(1..=16).contains(&p)
+        || !(2..=(1 << 18)).contains(&n)
+        || !(1..=8).contains(&r)
+        || !(1..=2).contains(&p)
     {
         return Err(Error::format(NAME, "unsupported scrypt parameters"));
     }
@@ -51,7 +52,11 @@ fn master_key(header: &Value, password: &str) -> Result<Zeroizing<Vec<u8>>> {
     let slots = header["slots"]
         .as_array()
         .ok_or_else(|| Error::format(NAME, "no slots"))?;
-    for slot in slots.iter().filter(|s| s["type"].as_i64() == Some(1)) {
+    for slot in slots
+        .iter()
+        .filter(|s| s["type"].as_i64() == Some(1))
+        .take(4)
+    {
         let get = |k: &str| {
             slot[k]
                 .as_str()

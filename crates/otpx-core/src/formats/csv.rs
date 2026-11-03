@@ -10,8 +10,11 @@ use crate::{Error, Result, b32, uri};
 
 const NAME: &str = "CSV";
 
+/// The first header among `names`, in the order of `names` (most specific first).
 fn col(headers: &[String], names: &[&str]) -> Option<usize> {
-    headers.iter().position(|h| names.contains(&h.as_str()))
+    names
+        .iter()
+        .find_map(|n| headers.iter().position(|h| h == n))
 }
 
 /// Reads a CSV file.
@@ -40,15 +43,16 @@ pub fn import(text: &str, mut out: Imported) -> Result<Imported> {
         &headers,
         &[
             "otpauth",
-            "uri",
-            "url",
+            "otpauthurl",
+            "otpurl",
+            "logintotp",
             "totp",
             "otp",
-            "otpurl",
-            "otpauthurl",
+            "uri",
+            "url",
         ],
     );
-    let c_secret = col(&headers, &["secret", "key", "seed", "totpsecret"]);
+    let c_secret = col(&headers, &["secret", "totpsecret", "seed", "key"]);
     if c_uri.is_none() && c_secret.is_none() {
         return Err(Error::format(NAME, "no secret, totp or otpauth column"));
     }
@@ -74,7 +78,10 @@ pub fn import(text: &str, mut out: Imported) -> Result<Imported> {
         };
         let get = |c: Option<usize>| c.and_then(|i| rec.get(i)).unwrap_or("").trim();
         let what = format!("line {}", n + 2);
-        let u = get(c_uri);
+        // A website address in a `url` column is not an OTP.
+        let u = Some(get(c_uri))
+            .filter(|v| !v.to_ascii_lowercase().starts_with("http"))
+            .unwrap_or("");
         let entry = (|| -> Result<Entry> {
             let mut e = if u.to_ascii_lowercase().starts_with("otpauth://") {
                 uri::parse(u)?

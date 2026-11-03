@@ -115,9 +115,6 @@ pub struct Quick {
     /// A PIN opens `pin.json` (with a device secret kept in the keychain).
     #[serde(default)]
     pub pin: bool,
-    /// Wrong PINs in a row (the PIN is erased at [`PIN_ATTEMPTS`]).
-    #[serde(default)]
-    pub pin_failures: u32,
 }
 
 /// Wrong PINs before the PIN is erased.

@@ -3,7 +3,7 @@
 import { h, mount } from '../dom';
 import { t, tn } from '../i18n';
 import { app } from '../state';
-import { fromDeviceSetup } from '../sync';
+import { backendOf, describeRemote, fromDeviceSetup } from '../sync';
 import { button, field, input, notice, pageHead, toast } from '../ui';
 import { type Account, core, type ImportResult, message } from '../wasm';
 import { report } from './add';
@@ -23,16 +23,23 @@ export function receive(main: HTMLElement, link: string): void {
   const show = (o: Opened) => {
     if (o.device) {
       const { remotes, skipped } = fromDeviceSetup(o.device);
+      // Show exactly where sync would go: a hostile link could name someone else's repository.
       mount(
         body,
+        h('p', { class: 'lead' }, t('receive.device.lead', { list: remotes.length ? '' : '—' })),
         h(
-          'p',
-          { class: 'lead' },
-          t('receive.device.lead', { list: remotes.map((r) => r.name).join(', ') || '—' }),
+          'ul',
+          { class: 'remotes' },
+          ...remotes.map((r) =>
+            h(
+              'li',
+              { class: 'remote' },
+              h('span', { class: 'remote-text' }, h('strong', {}, r.name), h('span', {}, describeRemote(r))),
+            ),
+          ),
         ),
-        skipped.length
-          ? notice(`${skipped.join(', ')}: folder remotes stay on the other machine.`, 'warn')
-          : null,
+        skipped.length ? notice(t('receive.device.skipped', { list: skipped.join(', ') }), 'warn') : null,
+        notice(t('receive.device.check'), 'warn'),
         h(
           'div',
           { class: 'actions' },
@@ -41,21 +48,29 @@ export function receive(main: HTMLElement, link: string): void {
             async () => {
               const first = remotes[0];
               if (!first || (first.kind !== 'github' && first.kind !== 'gist')) return;
-              try {
-                const { backendOf } = await import('../sync');
-                const got = await backendOf(first, app.files)?.fetch();
-                if (got && core.isVault(got.content)) {
-                  if (!app.file) await app.setFile(got.content);
-                  app.pending = remotes;
-                  if (app.vault) {
-                    await app.opened(app.vault);
-                  }
-                  pendingLink.value = null;
-                  toast(t('fetch.done'));
-                  location.hash = '#/';
-                } else {
-                  mount(status, notice(t('fetch.notfound'), 'error'));
+              for (const r of remotes) {
+                const mine = app.remotes.find((x) => x.name === r.name);
+                if (mine && describeRemote(mine) !== describeRemote(r)) {
+                  mount(status, notice(t('receive.device.exists', { name: r.name }), 'error'));
+                  return;
                 }
+              }
+              try {
+                const got = await backendOf(first, app.files)?.fetch();
+                if (!got || !core.isVault(got.content)) {
+                  mount(status, notice(t('fetch.notfound'), 'error'));
+                  return;
+                }
+                if (app.file && core.vaultId(app.file) !== core.vaultId(got.content)) {
+                  mount(status, notice(t('receive.device.other'), 'error'));
+                  return;
+                }
+                if (!app.file) await app.setFile(got.content);
+                app.pending = remotes;
+                if (app.vault) await app.opened(app.vault);
+                pendingLink.value = null;
+                toast(t('fetch.done'));
+                location.hash = '#/';
               } catch (e) {
                 mount(status, notice(message(e), 'error'));
               }

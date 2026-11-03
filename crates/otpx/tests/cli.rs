@@ -229,7 +229,27 @@ fn folder_sync_merges_concurrent_changes_and_new_devices_join() {
             .status
             .success()
     );
-    b.ok(&["sync"]);
+    // B's cached key is now retired: without a terminal it says so (exit 3) instead of guessing.
+    b.ok(&[
+        "--offline",
+        "add",
+        "otpauth://totp/Late:b?secret=GEZDGNBVGY3TQOJQ&issuer=Late",
+    ]);
+    assert_eq!(code(&b.run(&["sync"])), 3);
+    let out = b
+        .cmd()
+        .env("OTPX_PASSWORD", "a brand new passphrase")
+        .args(["sync"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // B's offline change survived the re-key, and A gets it.
+    a.ok(&["sync"]);
+    assert_eq!(a.labels(), vec!["GitHub (me)", "Late (b)", "Mail (x)"]);
     b.ok(&["lock"]);
     assert_eq!(
         code(&b.stdin(&["unlock", "--password-stdin"], &format!("{PW}\n"))),

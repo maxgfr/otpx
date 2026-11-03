@@ -185,7 +185,7 @@ pub fn receive(a: ReceiveArgs, ctx: &Ctx) -> anyhow::Result<ExitCode> {
             )?
         };
     if let Some(device) = &shared.device {
-        return receive_device(ctx, device);
+        return receive_device(ctx, device, a.yes);
     }
     for e in &shared.entries {
         ctx.ui.emit("shared", entry_json(e));
@@ -236,9 +236,65 @@ struct DeviceSetup {
     tokens: Vec<(String, String)>,
 }
 
-fn receive_device(ctx: &Ctx, device: &serde_json::Value) -> anyhow::Result<ExitCode> {
+fn receive_device(ctx: &Ctx, device: &serde_json::Value, yes: bool) -> anyhow::Result<ExitCode> {
     let setup: DeviceSetup = serde_json::from_value(device.clone())
         .map_err(|e| fail(exit::USAGE, format!("device setup: {e}")))?;
+    let cfg = ctx.config();
+    // Never replace a remote silently: a hostile link could point sync at someone else's repo.
+    for r in &setup.remotes {
+        if let Some(mine) = cfg.remote(&r.name)
+            && mine.kind != r.kind
+        {
+            return Err(fail(
+                exit::CONFLICT,
+                format!(
+                    "a remote named {:?} already exists here ({}); remove it first with `otpx sync remove {}`",
+                    r.name,
+                    mine.describe(),
+                    r.name
+                ),
+            ));
+        }
+    }
+    ctx.ui.note("This link sets up sync with:");
+    for r in &setup.remotes {
+        ctx.ui.note(&format!(
+            "  {}: {}",
+            ui::clean(&r.name),
+            ui::clean(&r.describe())
+        ));
+    }
+    if !yes && !ctx.ui.confirm("Use these remotes on this device")? {
+        return Err(fail(exit::USAGE, "cancelled"));
+    }
+    let token_of = |name: &str| {
+        setup
+            .tokens
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, t)| t.clone())
+            .unwrap_or_default()
+    };
+    // The remote must hold this device's vault (or this device has none yet).
+    if let Some(first) = setup.remotes.first() {
+        let backend = crate::sync::backend_with(first, token_of(&first.name));
+        if let Some((content, _)) = backend.fetch()? {
+            let remote = otpx_core::vault::VaultFile::parse(&content).map_err(|e| {
+                fail(
+                    exit::CONFLICT,
+                    format!("the remote file is not an otpx vault: {e}"),
+                )
+            })?;
+            if let Some((local, _)) = ctx.store.read()?
+                && local.id != remote.id
+            {
+                return Err(fail(
+                    exit::CONFLICT,
+                    "that remote holds another vault than this device's: nothing was changed",
+                ));
+            }
+        }
+    }
     for (name, token) in &setup.tokens {
         ctx.secrets()
             .set(&format!("remote:{name}"), token.as_bytes())?;

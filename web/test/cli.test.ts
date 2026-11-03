@@ -30,7 +30,7 @@ function otpx(home: string, args: string[], input?: string): { code: number; out
 
 test.skipIf(!bin)('a vault made in the browser opens in the CLI, and the other way round', () => {
   const home = mkdtempSync(join(tmpdir(), 'otpx-'));
-  const v = core.Vault.create('shared pw', Date.now(), true);
+  const v = core.Vault.create('shared pw', Date.now(), 'test');
   v.addText(
     'otpauth://totp/GitHub:me?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=GitHub&digits=8',
     Date.now(),
