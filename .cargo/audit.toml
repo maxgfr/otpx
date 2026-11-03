@@ -1,0 +1,5 @@
+# Same exception as deny.toml: crypto-bigint 0.5 is reached only through age 0.12 -> hpke/p256
+# (P-256 tag recipients). otpx uses age's X25519 and scrypt recipients only, so no P-256
+# arithmetic ever runs on a secret. Drop this once age ships on crypto-bigint 0.7.
+[advisories]
+ignore = ["RUSTSEC-2026-0387"]

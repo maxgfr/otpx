@@ -1,0 +1,172 @@
+name: Release
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: 1.99.0
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/ci.yml
+  version:
+    needs: verify
+    runs-on: ubuntu-24.04
+    # semantic-release checks push access with `git push --dry-run`, even in --dry-run.
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - id: next
+        name: Resolve the next release without publishing
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: npm run release -- --dry-run
+  web:
+    needs: version
+    if: needs.version.outputs.version != ''
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
+        with:
+          tool: wasm-pack@0.15.0
+      - env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: python3 scripts/prepare_release.py "$RELEASE_VERSION"
+      - run: scripts/build-web.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web
+          path: web/dist/
+          include-hidden-files: true
+          if-no-files-found: error
+  binary:
+    needs: [version, web]
+    if: needs.version.outputs.version != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    env:
+      TARGET: ${{ matrix.target }}
+      RELEASE_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.target }}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Take the web app built once for this release
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: web
+          path: web/dist
+      - name: Set the resolved version before compilation
+        run: python3 scripts/prepare_release.py "$RELEASE_VERSION"
+      - run: cargo build --release --locked --target "$TARGET" -p otpx --features embed-web
+      - name: Refuse a binary that needs a glibc newer than 2.35
+        if: runner.os == 'Linux'
+        run: |
+          required=$(objdump -T "target/$TARGET/release/otpx" | grep -o 'GLIBC_[0-9.]*' | sed 's/^GLIBC_//' | sort -Vu | tail -1)
+          echo "highest required glibc: $required"
+          test -n "$required"
+          highest=$(printf '%s\n%s\n' "$required" 2.35 | sort -V | tail -1)
+          if [ "$highest" != 2.35 ]; then
+            echo "binary requires glibc $required, above 2.35" >&2
+            exit 1
+          fi
+      - run: "\"target/$TARGET/release/otpx\" --version"
+      - run: "\"target/$TARGET/release/otpx\" selftest"
+      - name: Stage the binary
+        run: |
+          mkdir -p dist
+          cp "target/$TARGET/release/otpx" "dist/otpx-$TARGET"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: otpx-${{ matrix.target }}
+          path: dist/otpx-${{ matrix.target }}
+          if-no-files-found: error
+  publish:
+    needs: [version, binary]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: otpx-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - run: python3 scripts/release_checksums.py
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/otpx-*
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Refuse publishing an outdated branch head
+        env:
+          BUILD_SHA: ${{ github.sha }}
+        run: test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$BUILD_SHA"
+      - name: Release versioned binaries and checksums
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OTPX_RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: npm run release
+  pages:
+    needs: [version, publish]
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/pages.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
