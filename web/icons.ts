@@ -5,9 +5,9 @@ import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
 
 type RGB = [number, number, number];
-const GREEN: RGB = [0x0e, 0x42, 0x2d];
-const IVORY: RGB = [0xf7, 0xf3, 0xe8];
-const BRASS: RGB = [0xd2, 0xa5, 0x4a];
+const ZINC: RGB = [0x18, 0x18, 0x1b];
+const WHITE: RGB = [0xff, 0xff, 0xff];
+const BLUE: RGB = [0x3b, 0x82, 0xf6];
 
 function roundRect(x: number, y: number, x0: number, y0: number, w: number, h: number, r: number): number {
   const cx = Math.max(x0 + r, Math.min(x, x0 + w - r));
@@ -19,11 +19,11 @@ function pixel(x: number, y: number, maskable: boolean): [number, number, number
   // 64-unit design grid; maskable icons fill the square (no outer corner).
   const bg = maskable ? -1 : roundRect(x, y, 0, 0, 64, 64, 14);
   if (bg > 0.5) return [0, 0, 0, 0];
-  let c: RGB = GREEN;
-  if (roundRect(x, y, 14, 14, 36, 38, 4) < 0) c = IVORY;
+  let c: RGB = ZINC;
+  if (roundRect(x, y, 14, 14, 36, 38, 4) < 0) c = WHITE;
   const d = Math.hypot(x - 25, y - 25);
-  if (d < 6.5) c = d < 3.5 ? GREEN : BRASS;
-  if (roundRect(x, y, 20, 37, 24, 5, 2.5) < 0) c = GREEN;
+  if (d < 6.5) c = d < 3.5 ? ZINC : BLUE;
+  if (roundRect(x, y, 20, 37, 24, 5, 2.5) < 0) c = ZINC;
   return [...c, 255];
 }
 

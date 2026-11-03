@@ -58,4 +58,4 @@ No testimonials, users, metrics or press exist. Do not invent any. Demonstration
 
 ## Accessibility & Inclusion
 
-WCAG 2.2 AA. Codes readable at a glance (large, tabular figures, grouped), never conveyed by color alone; full keyboard use on desktop; reduced motion honored; French and English, chosen from the browser *(inferred)*.
+WCAG 2.2 AA. Codes readable at a glance (large, tabular figures, grouped), never conveyed by color alone; full keyboard use on desktop; reduced motion honored; English by default whatever the browser language; German available in the settings.

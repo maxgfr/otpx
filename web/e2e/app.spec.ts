@@ -156,20 +156,26 @@ test('create, add, read codes, edit, share, lock and unlock', async ({ page, con
   expect(errors).toEqual([]);
 });
 
-test('French interface and vault reload after a page refresh', async ({ browser }) => {
-  const ctx = await browser.newContext({ locale: 'fr-FR' });
+test('English whatever the browser language, German from the settings, kept after a refresh', async ({
+  browser,
+}) => {
+  const ctx = await browser.newContext({ locale: 'de-DE' });
   const page = await ctx.newPage();
   await page.goto('/');
-  await expect(page.getByRole('link', { name: /Créer un coffre/ })).toBeVisible();
-  await page.getByRole('link', { name: /Créer un coffre/ }).click();
-  await page.getByLabel('Mot de passe maître').fill('1234');
-  await expect(page.getByText(/Que des chiffres/)).toBeVisible();
-  await page.getByLabel('Mot de passe maître').fill(PW);
-  await page.getByLabel('Répète-le').fill(PW);
-  await page.getByRole('button', { name: 'Créer le coffre' }).click();
-  await page.getByText("Je l'ai noté").click();
-  await page.getByRole('button', { name: 'Continuer' }).click();
+  await expect(page.getByRole('link', { name: /Create a vault/ })).toBeVisible();
+  await page.getByRole('link', { name: /Create a vault/ }).click();
+  await page.getByLabel('Master password').fill('1234');
+  await expect(page.getByText(/Digits only/)).toBeVisible();
+  await page.getByLabel('Master password').fill(PW);
+  await page.getByLabel('Repeat it').fill(PW);
+  await page.getByRole('button', { name: 'Create the vault' }).click();
+  await page.getByText('I wrote it down').click();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.goto('/#/settings');
+  await page.getByLabel('Language').selectOption('de');
+  await expect(page.getByRole('heading', { name: 'Einstellungen' })).toBeVisible();
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Déverrouiller' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Entsperren' })).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'de');
   await ctx.close();
 });

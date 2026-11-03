@@ -18,7 +18,7 @@ export interface Device {
 }
 
 export interface Prefs {
-  lang: 'en' | 'fr' | null;
+  lang: 'en' | 'de' | null;
   hideLock: boolean;
 }
 

@@ -1,39 +1,57 @@
-/* otpx: a concierge's key board. Baize green shell, ivory tags, brass inside plates only. */
+/* otpx: neutral zinc surfaces, one blue accent, red only for loss and expiry. */
 
 :root {
   color-scheme: light dark;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
-  --ground: oklch(95.6% 0.009 95);
-  --fg: oklch(25% 0.026 165);
-  --fg-2: oklch(42% 0.022 165);
-  --rule: oklch(86.5% 0.013 95);
+  --ground: #fafafa;
+  --fg: #18181b;
+  --fg-2: #52525b;
+  --rule: #e4e4e7;
 
-  --tag: oklch(98.7% 0.012 92);
-  --tag-edge: oklch(85% 0.016 92);
-  --tag-ink: oklch(24% 0.026 165);
-  --tag-ink-2: oklch(43% 0.022 165);
-  --field: oklch(100% 0 0);
+  --surface: #ffffff;
+  --edge: #e4e4e7;
+  --ink: #18181b;
+  --ink-2: #52525b;
+  --field: #ffffff;
+  --field-edge: #d4d4d8;
+  --hover: #f4f4f5;
 
-  --baize: oklch(34% 0.066 162);
-  --baize-deep: oklch(28.5% 0.06 162);
-  --on-baize: oklch(96.5% 0.015 95);
-  --on-baize-2: oklch(83% 0.035 145);
+  --bar: #18181b;
+  --bar-2: #27272a;
+  --on-bar: #fafafa;
+  --on-bar-2: #a1a1aa;
 
-  --brass: oklch(73% 0.125 82);
-  --brass-soft: oklch(94% 0.04 88);
-  --brass-ink: oklch(29% 0.05 75);
-  --vermilion: oklch(55% 0.19 32);
-  --vermilion-soft: oklch(95% 0.03 35);
-  --hole: oklch(90% 0.01 95);
+  --invert: #18181b;
+  --invert-2: #3f3f46;
+  --on-invert: #fafafa;
+  --on-invert-2: #a1a1aa;
+
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --on-accent: #ffffff;
+  --accent-line: #2563eb;
+  --accent-soft: #dbeafe;
+  --accent-ink: #1d4ed8;
+
+  --warn-soft: #fffbeb;
+  --warn-edge: #f59e0b;
+  --star: #f59e0b;
+  --star-edge: #b45309;
+
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
+  --danger-ink: #b91c1c;
+  --danger-fill: #dc2626;
+  --hole: #f4f4f5;
 
   --radius: 12px;
   --radius-sm: 9px;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --measure: 46rem;
 
-  --focus: var(--baize);
-  --vermilion-ink: oklch(47% 0.18 32);
+  --focus: #2563eb;
+  --focus-bar: #60a5fa;
   --size-code: 1.75rem;
   --size-body: 1rem;
   --size-small: 0.875rem;
@@ -41,36 +59,35 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --ground: oklch(19.5% 0.026 165);
-    --fg: oklch(92% 0.014 95);
-    --fg-2: oklch(77% 0.025 140);
-    --rule: oklch(32% 0.03 165);
-    --tag: oklch(87% 0.018 92);
-    --tag-edge: oklch(73% 0.022 92);
-    --tag-ink: oklch(21% 0.026 165);
-    --tag-ink-2: oklch(36% 0.022 165);
-    --field: oklch(95% 0.012 92);
-    --baize: oklch(30% 0.058 162);
-    --baize-deep: oklch(24.5% 0.05 162);
-    --brass-soft: oklch(30% 0.05 85);
-    --brass-ink: oklch(25% 0.05 75);
-    --vermilion: oklch(64% 0.18 32);
-    --vermilion-soft: oklch(28% 0.06 32);
-    --hole: oklch(16% 0.024 165);
-    --focus: oklch(86% 0.09 85);
-    --vermilion-ink: oklch(72% 0.16 32);
-  }
-
-  /* Ivory plates keep light-scheme controls and a dark focus ring. */
-  :is(.tag-plate, .remote-add, .tag, .choice, .tabs, .remote) {
-    color-scheme: light;
-    --focus: var(--baize);
-    --vermilion-ink: oklch(47% 0.18 32);
-  }
-
-  /* The punched hole shows the dark ground through the tag: light text there. */
-  .eyelet-hole {
-    --vermilion-ink: oklch(72% 0.16 32);
+    --ground: #09090b;
+    --fg: #fafafa;
+    --fg-2: #a1a1aa;
+    --rule: #27272a;
+    --surface: #18181b;
+    --edge: #27272a;
+    --ink: #fafafa;
+    --ink-2: #a1a1aa;
+    --field: #09090b;
+    --field-edge: #3f3f46;
+    --hover: #27272a;
+    --bar: #18181b;
+    --bar-2: #27272a;
+    --invert: #fafafa;
+    --invert-2: #e4e4e7;
+    --on-invert: #18181b;
+    --on-invert-2: #52525b;
+    --accent-line: #3b82f6;
+    --accent-soft: #1e3a8a;
+    --accent-ink: #bfdbfe;
+    --warn-soft: #422006;
+    --warn-edge: #b45309;
+    --star: #fbbf24;
+    --star-edge: #d97706;
+    --danger: #f87171;
+    --danger-soft: #450a0a;
+    --danger-ink: #fca5a5;
+    --hole: #27272a;
+    --focus: #60a5fa;
   }
 }
 
@@ -92,12 +109,12 @@ body {
   color: var(--fg);
   font: 400 var(--size-body) / 1.5 var(--font);
   font-variant-numeric: tabular-nums;
-  caret-color: var(--brass);
+  caret-color: var(--accent);
 }
 
 ::selection {
-  background: var(--brass);
-  color: var(--brass-ink);
+  background: var(--accent-soft);
+  color: var(--fg);
 }
 
 :focus-visible {
@@ -108,7 +125,7 @@ body {
 
 a {
   color: inherit;
-  text-decoration-color: var(--brass);
+  text-decoration-color: var(--accent-line);
   text-decoration-thickness: 1.5px;
   text-underline-offset: 0.2em;
 }
@@ -167,8 +184,8 @@ p {
   top: -4rem;
   z-index: 10;
   padding: 0.5rem 0.75rem;
-  background: var(--brass);
-  color: var(--brass-ink);
+  background: var(--accent);
+  color: var(--on-accent);
   border-radius: var(--radius-sm);
 }
 
@@ -177,7 +194,7 @@ p {
 }
 
 .bar {
-  --focus: var(--brass);
+  --focus: var(--focus-bar);
   position: sticky;
   top: 0;
   z-index: 5;
@@ -187,8 +204,8 @@ p {
   min-height: 3.75rem;
   padding: 0.625rem max(1rem, calc((100vw - var(--measure)) / 2));
   padding-top: max(0.625rem, env(safe-area-inset-top));
-  background: var(--baize);
-  color: var(--on-baize);
+  background: var(--bar);
+  color: var(--on-bar);
 }
 
 .brand {
@@ -196,7 +213,7 @@ p {
   font-weight: 800;
   letter-spacing: 0.02em;
   text-decoration: none;
-  color: var(--on-baize);
+  color: var(--on-bar);
 }
 
 .search-wrap {
@@ -210,7 +227,7 @@ p {
 .search-wrap .icon {
   position: absolute;
   left: 0.75rem;
-  color: var(--on-baize-2);
+  color: var(--on-bar-2);
   pointer-events: none;
 }
 
@@ -221,18 +238,18 @@ p {
   padding: 0 0.875rem 0 2.5rem;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  background: var(--baize-deep);
-  color: var(--on-baize);
+  background: var(--bar-2);
+  color: var(--on-bar);
   font: inherit;
 }
 
 .bar .search::placeholder {
-  color: var(--on-baize-2);
+  color: var(--on-bar-2);
 }
 
 .bar .search:focus-visible {
   outline-offset: 0;
-  border-color: var(--brass);
+  border-color: var(--accent);
 }
 
 .nav {
@@ -253,7 +270,7 @@ p {
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--on-baize);
+  color: var(--on-bar);
   font: inherit;
   font-size: var(--size-small);
   text-decoration: none;
@@ -263,7 +280,7 @@ p {
 .nav-btn:hover,
 .sync-state:hover,
 .nav-btn[aria-current="page"] {
-  background: var(--baize-deep);
+  background: var(--bar-2);
 }
 
 .nav-label {
@@ -275,13 +292,13 @@ p {
 }
 
 .sync-state {
-  color: var(--on-baize-2);
+  color: var(--on-bar-2);
   white-space: nowrap;
 }
 
 .sync-state.is-none,
 .sync-state.is-error {
-  color: var(--on-baize);
+  color: var(--on-bar);
 }
 
 .sync-state.is-busy .icon {
@@ -314,9 +331,9 @@ p {
   position: relative;
   display: flex;
   align-items: stretch;
-  background: var(--tag);
-  color: var(--tag-ink);
-  border: 1px solid var(--tag-edge);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--edge);
   border-radius: var(--radius);
   transition:
     translate 220ms var(--ease),
@@ -359,7 +376,7 @@ p {
 }
 
 .tag-account {
-  color: var(--tag-ink-2);
+  color: var(--ink-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -368,8 +385,8 @@ p {
 .fav .icon {
   width: 0.875rem;
   height: 0.875rem;
-  fill: var(--brass);
-  stroke: var(--brass-ink);
+  fill: var(--star);
+  stroke: var(--star-edge);
   stroke-width: 1.25;
 }
 
@@ -394,7 +411,7 @@ p {
 }
 
 .next {
-  color: var(--tag-ink-2);
+  color: var(--ink-2);
   font-size: var(--size-small);
   white-space: nowrap;
   transition: opacity 160ms var(--ease);
@@ -417,14 +434,14 @@ p {
   display: grid;
   place-items: center;
   width: 2.75rem;
-  border-left: 1px solid var(--tag-edge);
-  color: var(--tag-ink-2);
+  border-left: 1px solid var(--edge);
+  color: var(--ink-2);
   border-radius: 0 var(--radius) var(--radius) 0;
 }
 
 .tag-open:hover,
 .tag-hit:hover {
-  background: color-mix(in oklch, var(--tag) 92%, var(--brass));
+  background: var(--hover);
 }
 
 @media (hover: hover) {
@@ -447,24 +464,24 @@ p {
 /* The reversed plate: a copied tag, until the clipboard clears. */
 .tag.is-copied {
   translate: 0 -2px;
-  background: var(--baize);
-  border-color: var(--baize);
-  color: var(--on-baize);
+  background: var(--invert);
+  border-color: var(--invert);
+  color: var(--on-invert);
 }
 
 .tag.is-copied .tag-account,
 .tag.is-copied .next,
 .tag.is-copied .tag-open {
-  color: var(--on-baize-2);
+  color: var(--on-invert-2);
 }
 
 .tag.is-copied .tag-open {
-  border-color: var(--baize-deep);
+  border-color: var(--invert-2);
 }
 
 .tag.is-copied .tag-hit:hover,
 .tag.is-copied .tag-open:hover {
-  background: var(--baize-deep);
+  background: var(--invert-2);
 }
 
 .tag.is-copied .next {
@@ -475,7 +492,7 @@ p {
   display: inline-flex;
 }
 
-/* The eyelet: a punched hole whose brass rim is the time left. */
+/* The countdown ring: its blue arc is the time left. */
 .eyelet {
   --left: 1;
   position: relative;
@@ -485,16 +502,16 @@ p {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: conic-gradient(var(--brass) calc(var(--left) * 1turn), var(--tag-edge) 0);
+  background: conic-gradient(var(--accent-line) calc(var(--left) * 1turn), var(--edge) 0);
 }
 
 .eyelet.is-ending {
-  background: conic-gradient(var(--vermilion) calc(var(--left) * 1turn), var(--tag-edge) 0);
+  background: conic-gradient(var(--danger) calc(var(--left) * 1turn), var(--edge) 0);
 }
 
 .eyelet.is-counter,
 .eyelet-still {
-  background: var(--brass);
+  background: var(--accent);
 }
 
 .eyelet-hole {
@@ -504,14 +521,13 @@ p {
   place-items: center;
   border-radius: 50%;
   background: var(--hole);
-  box-shadow: inset 0 1px 2px oklch(0% 0 0 / 0.28);
   color: var(--fg-2);
   font-size: 0.6875rem;
   font-weight: 650;
 }
 
 .eyelet.is-ending .eyelet-hole {
-  color: var(--vermilion-ink);
+  color: var(--danger-ink);
 }
 
 .nomatch {
@@ -523,9 +539,9 @@ p {
 /* Plates, forms, controls */
 
 .tag-plate {
-  background: var(--tag);
-  color: var(--tag-ink);
-  border: 1px solid var(--tag-edge);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--edge);
   border-radius: var(--radius);
   padding: 1.25rem;
 }
@@ -567,11 +583,11 @@ p {
 
 .tag-plate .lead,
 .tag-plate p {
-  color: var(--tag-ink-2);
+  color: var(--ink-2);
 }
 
 .tag-plate h2 {
-  color: var(--tag-ink);
+  color: var(--ink);
   margin-bottom: 0.5rem;
 }
 
@@ -596,19 +612,19 @@ p {
 }
 
 :is(.tag-plate, .remote-add, .tag, .choice, .remote) .hint {
-  color: var(--tag-ink-2);
+  color: var(--ink-2);
 }
 
 :where(input:not([type="checkbox"]):not([type="file"]), textarea, select) {
   width: 100%;
   min-height: 2.75rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid var(--tag-edge);
+  border: 1px solid var(--field-edge);
   border-radius: var(--radius-sm);
   background: var(--field);
-  color: var(--tag-ink);
+  color: var(--ink);
   font: inherit;
-  caret-color: var(--baize);
+  caret-color: var(--accent);
 }
 
 textarea {
@@ -617,7 +633,7 @@ textarea {
 }
 
 :where(input, textarea)::placeholder {
-  color: var(--tag-ink-2);
+  color: var(--ink-2);
 }
 
 :where(input, textarea, select):focus-visible {
@@ -640,7 +656,7 @@ input:disabled {
 .check input {
   width: 1.25rem;
   height: 1.25rem;
-  accent-color: var(--baize);
+  accent-color: var(--accent);
 }
 
 .grid-2 {
@@ -663,10 +679,10 @@ input:disabled {
   gap: 0.5rem;
   min-height: 2.75rem;
   padding: 0 1rem;
-  border: 1px solid var(--tag-edge);
+  border: 1px solid var(--edge);
   border-radius: var(--radius-sm);
-  background: var(--tag);
-  color: var(--tag-ink);
+  background: var(--surface);
+  color: var(--ink);
   font: inherit;
   font-weight: 650;
   text-decoration: none;
@@ -675,17 +691,17 @@ input:disabled {
 }
 
 .btn:hover {
-  background: color-mix(in oklch, var(--tag) 88%, var(--brass));
+  background: var(--hover);
 }
 
 .btn-primary {
-  background: var(--brass);
-  border-color: var(--brass);
-  color: var(--brass-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
 }
 
 .btn-primary:hover {
-  background: color-mix(in oklch, var(--brass) 86%, var(--brass-ink));
+  background: var(--accent-hover);
 }
 
 .btn-quiet {
@@ -694,7 +710,7 @@ input:disabled {
   color: inherit;
   font-weight: 500;
   text-decoration: underline;
-  text-decoration-color: var(--brass);
+  text-decoration-color: var(--accent-line);
   text-underline-offset: 0.2em;
 }
 
@@ -705,12 +721,12 @@ input:disabled {
 
 .btn-danger {
   background: transparent;
-  border-color: var(--vermilion);
-  color: var(--vermilion);
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .btn-danger:hover {
-  background: var(--vermilion-soft);
+  background: var(--danger-soft);
 }
 
 .btn:disabled {
@@ -758,38 +774,22 @@ input:disabled {
 }
 
 :is(.tag-plate, .remote-add) .notice {
-  border-color: var(--tag-edge);
-  color: var(--tag-ink-2);
+  border-color: var(--edge);
+  color: var(--ink-2);
 }
 
 .notice-warn,
 .tag-plate .notice-warn {
-  background: var(--brass-soft);
-  border-color: var(--brass);
+  background: var(--warn-soft);
+  border-color: var(--warn-edge);
   color: var(--fg);
 }
 
 .notice-error,
 .tag-plate .notice-error {
-  background: var(--vermilion-soft);
-  border-color: var(--vermilion);
+  background: var(--danger-soft);
+  border-color: var(--danger);
   color: var(--fg);
-}
-
-@media (prefers-color-scheme: dark) {
-  .tag-plate .notice-warn,
-  .tag-plate .notice-error {
-    color: var(--tag-ink);
-  }
-
-  .tag-plate .notice-warn {
-    background: oklch(93% 0.04 88);
-  }
-
-  .tag-plate .notice-error {
-    background: oklch(92% 0.035 35);
-    border-color: oklch(52% 0.19 32);
-  }
 }
 
 .form-status:empty {
@@ -832,7 +832,7 @@ details > summary::-webkit-details-marker {
   font-weight: 650;
   font-size: var(--size-small);
   text-decoration: underline;
-  text-decoration-color: var(--brass);
+  text-decoration-color: var(--accent-line);
   text-underline-offset: 0.2em;
 }
 
@@ -850,7 +850,7 @@ details > summary::-webkit-details-marker {
 }
 
 .danger-zone summary {
-  color: var(--vermilion);
+  color: var(--danger);
   font-size: var(--size-small);
   font-weight: 650;
 }
@@ -890,15 +890,15 @@ details > summary::-webkit-details-marker {
   align-items: center;
   gap: 0.875rem;
   padding: 0.875rem 1rem;
-  background: var(--tag);
-  color: var(--tag-ink);
-  border: 1px solid var(--tag-edge);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--edge);
   border-radius: var(--radius);
   text-decoration: none;
 }
 
 .choice:hover {
-  background: color-mix(in oklch, var(--tag) 92%, var(--brass));
+  background: var(--hover);
 }
 
 .choice > .icon:first-child {
@@ -906,8 +906,8 @@ details > summary::-webkit-details-marker {
   height: 2.5rem;
   padding: 0.5625rem;
   border-radius: 50%;
-  background: var(--brass);
-  color: var(--brass-ink);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
 }
 
 .choice-text {
@@ -916,12 +916,12 @@ details > summary::-webkit-details-marker {
 }
 
 .choice-text span {
-  color: var(--tag-ink-2);
+  color: var(--ink-2);
   font-size: var(--size-small);
 }
 
 .choice > .icon:last-child {
-  color: var(--tag-ink-2);
+  color: var(--ink-2);
 }
 
 .unlock {
@@ -972,7 +972,7 @@ details > summary::-webkit-details-marker {
   line-height: 1.7;
   word-spacing: 0.2em;
   overflow-wrap: anywhere;
-  color: var(--tag-ink);
+  color: var(--ink);
 }
 
 .empty {
@@ -1055,7 +1055,7 @@ details > summary::-webkit-details-marker {
   height: auto;
   padding: 0.75rem;
   background: oklch(100% 0 0);
-  border: 1px solid var(--tag-edge);
+  border: 1px solid var(--edge);
   border-radius: var(--radius);
 }
 
@@ -1092,8 +1092,8 @@ details > summary::-webkit-details-marker {
   grid-template-columns: repeat(4, 1fr);
   gap: 0.25rem;
   padding: 0.25rem;
-  background: var(--tag);
-  border: 1px solid var(--tag-edge);
+  background: var(--surface);
+  border: 1px solid var(--edge);
   border-radius: var(--radius);
 }
 
@@ -1106,7 +1106,7 @@ details > summary::-webkit-details-marker {
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--tag-ink-2);
+  color: var(--ink-2);
   font: inherit;
   font-weight: 650;
   font-size: var(--size-small);
@@ -1114,8 +1114,8 @@ details > summary::-webkit-details-marker {
 }
 
 .tab[aria-selected="true"] {
-  background: var(--baize);
-  color: var(--on-baize);
+  background: var(--invert);
+  color: var(--on-invert);
 }
 
 .tab-panel {
@@ -1128,7 +1128,7 @@ details > summary::-webkit-details-marker {
   aspect-ratio: 4 / 3;
   max-height: 60vh;
   border-radius: var(--radius);
-  background: var(--baize-deep);
+  background: #18181b;
   overflow: hidden;
 }
 
@@ -1142,7 +1142,7 @@ details > summary::-webkit-details-marker {
 .scanner-aim {
   position: absolute;
   inset: 18% 28%;
-  border: 2px solid var(--brass);
+  border: 2px solid var(--accent);
   border-radius: var(--radius);
   opacity: 0.4;
 }
@@ -1183,16 +1183,16 @@ details > summary::-webkit-details-marker {
   align-items: center;
   gap: 0.75rem;
   padding: 0.75rem 0.875rem;
-  background: var(--tag);
-  color: var(--tag-ink);
-  border: 1px solid var(--tag-edge);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--edge);
   border-radius: var(--radius);
 }
 
 .tag-plate .remote {
   padding: 0.5rem 0;
   border: 0;
-  border-bottom: 1px solid var(--tag-edge);
+  border-bottom: 1px solid var(--edge);
   border-radius: 0;
 }
 
@@ -1204,18 +1204,18 @@ details > summary::-webkit-details-marker {
 }
 
 .remote-text > span:not(.hint) {
-  color: var(--tag-ink-2);
+  color: var(--ink-2);
   font-size: var(--size-small);
 }
 
 .remote .hint {
-  color: var(--tag-ink-2);
+  color: var(--ink-2);
 }
 
 .remote-add {
-  background: var(--tag);
-  color: var(--tag-ink);
-  border: 1px solid var(--tag-edge);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--edge);
   border-radius: var(--radius);
   padding: 0 1.25rem;
 }
@@ -1237,7 +1237,7 @@ details > summary::-webkit-details-marker {
 }
 
 .remote-add > p {
-  color: var(--tag-ink-2);
+  color: var(--ink-2);
   margin-bottom: 1rem;
 }
 
@@ -1276,8 +1276,8 @@ code {
   max-width: min(92vw, 34rem);
   padding: 0.75rem 1rem;
   border-radius: var(--radius-sm);
-  background: var(--baize);
-  color: var(--on-baize);
+  background: var(--invert);
+  color: var(--on-invert);
   box-shadow: 0 6px 20px oklch(0% 0 0 / 0.22);
   translate: -50% 1rem;
   opacity: 0;
@@ -1293,8 +1293,8 @@ code {
 }
 
 .toast[data-kind="error"] {
-  background: var(--vermilion);
-  color: oklch(98% 0.01 35);
+  background: var(--danger-fill);
+  color: #ffffff;
 }
 
 /* Narrow screens */

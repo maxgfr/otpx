@@ -196,12 +196,12 @@ export async function settings(main: HTMLElement, rerender: () => void): Promise
   const lang = select(
     [
       ['en', 'English'],
-      ['fr', 'Français'],
+      ['de', 'Deutsch'],
     ],
     getLang(),
   );
   lang.addEventListener('change', async () => {
-    const l = lang.value === 'fr' ? 'fr' : 'en';
+    const l = lang.value === 'de' ? 'de' : 'en';
     await app.savePrefs({ lang: l });
     setLang(l);
     rerender();
