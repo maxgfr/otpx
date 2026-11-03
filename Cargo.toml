@@ -1,0 +1,32 @@
+[workspace]
+resolver = "3"
+members = ["crates/otpx-core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/maxgfr/otpx"
+homepage = "https://maxgfr.github.io/otpx/"
+authors = ["Maxime (maxgfr)"]
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.dependencies]
+otpx-core = { path = "crates/otpx-core", default-features = false }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.dev]
+debug = "line-tables-only"
+
+# Argon2 and scrypt are unusably slow unoptimized; tests derive keys in every case.
+[profile.dev.package."*"]
+opt-level = 2
+[profile.test.package."*"]
+opt-level = 2

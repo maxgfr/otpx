@@ -1,0 +1,9 @@
+target/
+dist/
+web/pkg/
+web/dist/
+node_modules/
+web/test-results/
+web/playwright-report/
+.impeccable/
+.DS_Store

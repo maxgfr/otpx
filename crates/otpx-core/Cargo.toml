@@ -1,0 +1,51 @@
+[package]
+name = "otpx-core"
+description = "otpx core: OTP codes, the encrypted vault, merge, import/export, QR and sharing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# Reads Microsoft Authenticator's PhoneFactor SQLite database (native only).
+sqlite = ["dep:rusqlite"]
+
+[dependencies]
+hmac = "0.13"
+sha1 = "0.11"
+sha2 = "0.11"
+argon2 = { version = "0.6", default-features = false, features = ["alloc"] }
+chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc"] }
+aes-gcm = { version = "0.11", default-features = false, features = ["alloc", "aes"] }
+scrypt = { version = "0.12", default-features = false }
+pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
+hkdf = "0.13"
+zeroize = { version = "1.9", features = ["derive"] }
+getrandom = "0.4"
+data-encoding = "2.11"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+prost = { version = "0.14", default-features = false, features = ["derive", "std"] }
+rqrr = "0.11"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+age = { version = "0.12", default-features = false, features = ["armor"] }
+csv = "1.4"
+percent-encoding = "2.3"
+thiserror = "2"
+rusqlite = { version = "0.41", features = ["bundled"], optional = true }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.4", features = ["wasm_js"] }
+# age reaches the 0.2 line through rand_core 0.6; browsers need its `js` backend too.
+getrandom02 = { package = "getrandom", version = "0.2", features = ["js"] }
+
+[dev-dependencies]
+proptest = "1.12"
+totp-rs = { version = "6", features = ["steam"] }
