@@ -3,7 +3,7 @@ name: otpx
 description: Use when the user wants a 2FA / OTP / TOTP code for an account, or wants to add, list, edit, delete, import (Google Authenticator, Microsoft Authenticator, Aegis, 2FAS, andOTP, Bitwarden, totp-cli, QR screenshots), export, back up, sync (GitHub repo, gist, folder) or share authenticator accounts with the otpx CLI.
 license: MIT
 metadata:
-  version: "0.1.1"
+  version: "0.2.0"
 ---
 
 # otpx
