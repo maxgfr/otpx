@@ -472,10 +472,8 @@ impl Vault {
         } else {
             Argon2Params::KEY
         };
-        Ok(
-            serde_json::to_string(&LocalWrap::new(&self.inner, secret, Some(p)).map_err(err)?)
-                .map_err(err)?,
-        )
+        serde_json::to_string(&LocalWrap::new(&self.inner, secret, Some(p)).map_err(err)?)
+            .map_err(err)
     }
 
     /// Encrypts device-local data (sync settings, tokens).
