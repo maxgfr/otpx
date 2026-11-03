@@ -453,8 +453,8 @@ impl Vault {
     /// Ways to unlock that taking `newer`'s keyring would add (JSON array of labels): show them
     /// and ask before [`Vault::absorb_rotated`].
     #[wasm_bindgen(js_name = keyringChanges)]
-    pub fn keyring_changes(&self, newer: &Vault) -> String {
-        json!(self.inner.keyring_changes(&newer.inner)).to_string()
+    pub fn keyring_changes(&self, newer: &Vault, now: f64) -> String {
+        json!(self.inner.keyring_changes(&newer.inner, ms(now))).to_string()
     }
 
     /// Takes a copy re-keyed elsewhere (opened with the current password); this vault's

@@ -437,7 +437,7 @@ pub fn rekey(
         found.ok_or_else(|| fail(exit::AUTH, "wrong master password"))?
     };
     // New ways to unlock that come with the other copy must be the user's own.
-    let changes = s.vault.keyring_changes(&other);
+    let changes = s.vault.keyring_changes(&other, now_ms());
     if !changes.is_empty() {
         if from_env.is_some() || !ui::interactive() {
             return Err(fail(

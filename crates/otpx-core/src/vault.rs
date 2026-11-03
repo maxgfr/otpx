@@ -330,6 +330,24 @@ fn open_slot(vault_id: &str, slot: &Slot, sk: &StaticSecret) -> Result<Key> {
     Ok(Zeroizing::new(arr))
 }
 
+/// `YYYY-MM-DD HH:MM UTC` of a time in ms (no calendar crate needed).
+fn utc(ms: u64) -> String {
+    let secs = ms / 1000;
+    let days = i64::try_from(secs / 86_400).unwrap_or(i64::MAX / 2);
+    let (h, m) = ((secs % 86_400) / 3600, (secs % 3600) / 60);
+    // Howard Hinnant's civil_from_days.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(mo <= 2);
+    format!("{y:04}-{mo:02}-{d:02} {h:02}:{m:02} UTC")
+}
+
 /// A recovery code: 256 random bits in base32, grouped by 4 (`ABCD-EFGH-…`).
 pub fn new_recovery_code() -> Result<(String, Zeroizing<Vec<u8>>)> {
     let raw = Zeroizing::new(crypto::random_bytes(32)?);
@@ -975,31 +993,44 @@ impl Unlocked {
     /// with: each line names a way to unlock ("recovery code", "device MacBook (touchid)",
     /// "passkey Phone"). Show it to the user before [`Unlocked::absorb_rotated`]: someone who
     /// knew an old password could slip a slot of their own into a re-keyed copy.
-    pub fn keyring_changes(&self, other: &Unlocked) -> Vec<String> {
+    pub fn keyring_changes(&self, other: &Unlocked, now_ms: u64) -> Vec<String> {
         let (merged, _) = merge_slots(&self.keyring, &other.keyring);
         merged
             .iter()
             .filter(|s| !self.keyring.slots.iter().any(|x| x.id == s.id))
             .filter(|s| other.opened_by.as_deref() != Some(s.id.as_str()))
-            .map(|s| match s.kind {
-                SlotKind::Password => "master password".to_owned(),
-                SlotKind::Recovery => "recovery code".to_owned(),
-                SlotKind::Passkey => format!(
-                    "passkey {}",
-                    if s.label.is_empty() {
-                        "(unnamed)"
-                    } else {
-                        &s.label
-                    }
-                ),
-                SlotKind::Device => format!(
-                    "quick unlock {}",
-                    if s.label.is_empty() {
-                        s.device.as_deref().unwrap_or("?")
-                    } else {
-                        &s.label
-                    }
-                ),
+            .map(|s| {
+                let what = match s.kind {
+                    SlotKind::Password => "master password".to_owned(),
+                    SlotKind::Recovery => "new recovery code".to_owned(),
+                    SlotKind::Passkey => format!(
+                        "passkey {}",
+                        if s.label.is_empty() {
+                            "(unnamed)"
+                        } else {
+                            &s.label
+                        }
+                    ),
+                    SlotKind::Device => format!(
+                        "quick unlock {}",
+                        if s.label.is_empty() {
+                            s.device.as_deref().unwrap_or("?")
+                        } else {
+                            &s.label
+                        }
+                    ),
+                };
+                // Where and when it was made: a forged slot comes from an unknown device, or late.
+                let future = if s.stamp.t > now_ms + 3_600_000 {
+                    ", dated in the future: suspicious"
+                } else {
+                    ""
+                };
+                format!(
+                    "{what} (made by device {} on {}{future})",
+                    s.stamp.d,
+                    utc(s.stamp.t)
+                )
             })
             .collect()
     }
@@ -1027,7 +1058,13 @@ impl Unlocked {
                 "open the re-keyed copy with the master password first".into(),
             ));
         };
-        if !merged.iter().any(|s| s.id == opened) {
+        // The winning password slot must be ours or the one just opened: a newer password that
+        // only the other copy carries, and that the user did not type, is what a forgery made
+        // with an old password looks like. (Our own newer password simply wins.)
+        if let Some(pw) = merged.iter().find(|s| s.kind == SlotKind::Password)
+            && pw.id != opened
+            && !self.keyring.slots.iter().any(|x| x.id == pw.id)
+        {
             return Err(Error::Entry(
                 "the password typed is not the current one of that copy (an older or forged copy?): nothing was merged".into(),
             ));
@@ -1254,7 +1291,7 @@ mod tests {
         let af = reopen(&a);
         assert_eq!(af.trust(&b), Trust::Concurrent);
         let opened = af.unlock_password("new-pw").unwrap();
-        assert_eq!(b.keyring_changes(&opened), Vec::<String>::new());
+        assert_eq!(b.keyring_changes(&opened, 70), Vec::<String>::new());
         b.absorb_rotated(&opened, 70, "b").unwrap();
         let merged = reopen(&b);
         assert!(merged.unlock_password("new-pw").is_ok());
@@ -1320,10 +1357,33 @@ mod tests {
         let f2 = reopen(&sneaky);
         let o2 = f2.unlock_password("new-pw").unwrap();
         let laggard = old.unlock_password("hunter2").unwrap();
-        assert_eq!(
-            laggard.keyring_changes(&o2),
-            vec!["quick unlock MacBook (touchid)".to_owned()]
+        let changes = laggard.keyring_changes(&o2, 100);
+        assert_eq!(changes.len(), 1);
+        assert!(
+            changes[0]
+                .starts_with("quick unlock MacBook (touchid) (made by device x on 1970-01-01"),
+            "{changes:?}"
         );
+        assert_eq!(utc(1_700_000_000_000), "2023-11-14 22:13 UTC");
+    }
+
+    #[test]
+    fn two_password_changes_at_once_do_not_deadlock() {
+        let c = new_vault();
+        let file = reopen(&c.vault);
+        let mut a = file.unlock_password("hunter2").unwrap();
+        let mut b = file.unlock_password("hunter2").unwrap();
+        a.set_password("pA", P, 50, "a").unwrap();
+        b.set_password("pB", P, 60, "b").unwrap();
+        let af = reopen(&a);
+        assert_eq!(af.trust(&b), Trust::Concurrent);
+        // Only pA opens A's copy; B's own newer pB wins the merge, and that is fine.
+        b.absorb_rotated(&af.unlock_password("pA").unwrap(), 70, "b")
+            .unwrap();
+        let merged = reopen(&b);
+        assert!(merged.unlock_password("pB").is_ok());
+        assert!(merged.unlock_password("pA").is_err());
+        assert_eq!(merged.trust(&a), Trust::Endorsed);
     }
 
     #[test]
