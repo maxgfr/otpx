@@ -40,7 +40,7 @@ age = { version = "0.12", default-features = false, features = ["armor"] }
 csv = "1.4"
 percent-encoding = "2.3"
 thiserror = "2"
-rusqlite = { version = "0.41", features = ["bundled"], optional = true }
+rusqlite = { version = "0.43", features = ["bundled"], optional = true }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 getrandom = { version = "0.4", features = ["wasm_js"] }
